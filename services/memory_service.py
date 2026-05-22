@@ -1,6 +1,8 @@
 import os
 import uuid
 from ollama import Client
+from fastapi.concurrency import run_in_threadpool
+
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -8,31 +10,34 @@ from qdrant_client.models import (
     PointStruct
 )
 
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+QDRANT_HOST      = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT      = int(os.getenv("QDRANT_PORT", 6333))
+COLLECTION_NAME  = "chat_memory"
+OLLAMA_URL       = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
-COLLECTION_NAME = "chat_memory"
-OLLAMA_URL = os.getenv(
-    "OLLAMA_URL",
-    "http://localhost:11434"
-)
+# Score threshold — results below this are too weak to be worth injecting
+SCORE_THRESHOLD  = float(os.getenv("MEMORY_SCORE_THRESHOLD", "0.60"))
 
-ollama_client = Client(
-    host=OLLAMA_URL
-)
+
+# -------------------------
+# Clients
+# -------------------------
+ollama_client = Client(host=OLLAMA_URL)
+
 client = QdrantClient(
     host=QDRANT_HOST,
     port=QDRANT_PORT
 )
 
 
+# -------------------------
+# COLLECTION SETUP
+# -------------------------
 def setup_collection():
-
     collections = client.get_collections().collections
     names = [c.name for c in collections]
 
     if COLLECTION_NAME not in names:
-
         client.create_collection(
             collection_name=COLLECTION_NAME,
             vectors_config=VectorParams(
@@ -42,18 +47,29 @@ def setup_collection():
         )
 
 
-def create_embedding(text: str):
+async def setup_collection_async():
+    await run_in_threadpool(setup_collection)
 
+
+# -------------------------
+# EMBEDDINGS
+# -------------------------
+def create_embedding(text: str):
     response = ollama_client.embeddings(
         model="nomic-embed-text",
         prompt=text
     )
-
     return response["embedding"]
 
 
-def save_message(role: str, message: str):
+async def create_embedding_async(text: str):
+    return await run_in_threadpool(create_embedding, text)
 
+
+# -------------------------
+# SAVE MESSAGE
+# -------------------------
+def save_message_sync(role: str, message: str):
     embedding = create_embedding(message)
 
     client.upsert(
@@ -63,7 +79,7 @@ def save_message(role: str, message: str):
                 id=str(uuid.uuid4()),
                 vector=embedding,
                 payload={
-                    "role": role,
+                    "role":    role,
                     "message": message
                 }
             )
@@ -71,8 +87,14 @@ def save_message(role: str, message: str):
     )
 
 
-def retrieve_context(query: str, limit=5):
+async def save_message(role: str, message: str):
+    await run_in_threadpool(save_message_sync, role, message)
 
+
+# -------------------------
+# RETRIEVE CONTEXT (score-filtered + ranked)
+# -------------------------
+def retrieve_context_sync(query: str, limit: int = 5) -> str:
     embedding = create_embedding(query)
 
     results = client.query_points(
@@ -81,15 +103,25 @@ def retrieve_context(query: str, limit=5):
         limit=limit
     ).points
 
-    context = []
+    # Filter: only keep results above the score threshold
+    filtered = [r for r in results if r.score >= SCORE_THRESHOLD]
 
-    for result in results:
+    if not filtered:
+        print(f"ℹ️  No semantic memory above threshold {SCORE_THRESHOLD} for query.")
+        return ""
 
-        role = result.payload["role"]
+    # Sort by score descending (highest relevance first)
+    filtered.sort(key=lambda r: r.score, reverse=True)
+
+    context_lines = []
+    for result in filtered:
+        role    = result.payload["role"]
         message = result.payload["message"]
+        score   = round(result.score, 3)
+        context_lines.append(f"[score={score}] {role}: {message}")
 
-        context.append(
-            f"{role}: {message}"
-        )
+    return "\n".join(context_lines)
 
-    return "\n".join(context)
+
+async def retrieve_context(query: str, limit: int = 5) -> str:
+    return await run_in_threadpool(retrieve_context_sync, query, limit)
