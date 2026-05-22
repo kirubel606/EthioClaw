@@ -5,7 +5,7 @@ from schema import ChatRequest, ChatResponse
 
 from services.memory_service   import retrieve_context, save_message, setup_collection_async
 from services.memory_extractor import extract_facts
-from services.memory_schema    import MemoryType
+from services.memory_schema    import MemoryType, MemoryFact
 from services.prompt_builder   import build_prompt
 from services.ai_service       import ask_model
 
@@ -15,6 +15,7 @@ from services.fact_db import (
     get_facts,
     get_identity_facts,
     get_fact_records,
+    delete_fact,
 )
 
 from services.contradiction_detector import (
@@ -154,3 +155,42 @@ async def chat(request: ChatRequest):
             status_code=500,
             detail=str(e) or "Internal Server Error (see logs)"
         )
+
+
+# -------------------------
+# FACTS MANAGEMENT ENDPOINTS
+# -------------------------
+@app.get("/facts")
+async def get_all_facts_endpoint():
+    try:
+        records = await get_fact_records()
+        return {"facts": records}
+    except Exception as e:
+        print("[ERROR] Failed to get facts:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/facts")
+async def save_fact_endpoint(fact: MemoryFact):
+    try:
+        await save_fact(
+            fact.key,
+            fact.value,
+            fact.memory_type.value,
+            fact.confidence,
+            fact.source
+        )
+        return {"status": "success"}
+    except Exception as e:
+        print("[ERROR] Failed to save fact:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/facts/{key}")
+async def delete_fact_endpoint(key: str):
+    try:
+        await delete_fact(key)
+        return {"status": "success"}
+    except Exception as e:
+        print("[ERROR] Failed to delete fact:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))

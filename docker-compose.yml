@@ -51,6 +51,19 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  frontend:
+    build: ./frontend
+    environment:
+      - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
+    container_name: ai_frontend
+    ports:
+      - "3000:3000"
+      - "8001:8001"
+    volumes:
+      - ./frontend:/app
+    depends_on:
+      - backend
+
 volumes:
   qdrant_data:
   pgdata:
