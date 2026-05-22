@@ -2,13 +2,15 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
-import { ThemeProvider } from 'next-themes'
+import { ThemeProvider } from '@/components/theme-provider'
+import { APP_NAME, THEME_STORAGE_KEY } from '@/lib/env'
+import { DEFAULT_THEME } from '@/lib/server-env'
 
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'EthioClaw - Rick and Morty AI Agent',
+  title: `${APP_NAME} - Rick and Morty AI Agent`,
   description: 'An awesome AI agent chat interface with Rick and Morty theme',
   generator: 'v0.app',
   icons: {
@@ -36,13 +38,20 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="bg-background">
-      <body className="font-sans antialiased">
-      <ThemeProvider attribute="class" defaultTheme="dark">
-        {children}
-      </ThemeProvider>
-      {process.env.NODE_ENV === 'production' && <Analytics />}
-    </body>
+    <html lang="en" suppressHydrationWarning>
+      <body className="font-sans antialiased overflow-hidden bg-background text-foreground">
+        <ThemeProvider
+          attribute="data-theme"
+          defaultTheme={DEFAULT_THEME}
+          enableSystem={false}
+          storageKey={THEME_STORAGE_KEY}
+          themes={['rick', 'morty', 'portal']}
+          disableTransitionOnChange
+        >
+          {children}
+        </ThemeProvider>
+        {process.env.NODE_ENV === 'production' && <Analytics />}
+      </body>
     </html>
   )
 }

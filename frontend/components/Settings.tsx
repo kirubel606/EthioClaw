@@ -1,9 +1,11 @@
 'use client'
 
-import { useTheme, type Theme } from '@/lib/theme-context'
 import { useState, useEffect } from 'react'
+import { useTheme } from 'next-themes'
 
-const THEMES: { id: Theme; name: string; description: string }[] = [
+type ThemeId = 'rick' | 'morty' | 'portal'
+
+const THEMES: { id: ThemeId; name: string; description: string }[] = [
   {
     id: 'rick',
     name: 'Rick Mode',
@@ -36,9 +38,11 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
 
   if (!isOpen || !mounted) return null
 
+  const activeTheme = (theme as ThemeId | undefined) ?? 'rick'
+
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 animate-in fade-in duration-200">
-      <div className="bg-card border-2 border-cyan-400 rounded-lg p-6 max-w-md w-full mx-4 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 animate-in fade-in duration-200">
+      <div className="max-w-md w-full rounded-lg border-2 border-cyan-400 bg-card p-6 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-green-400 neon-text">Settings</h2>
           <button
@@ -60,7 +64,7 @@ export default function Settings({ isOpen, onClose }: SettingsProps) {
                   key={t.id}
                   onClick={() => setTheme(t.id)}
                   className={`w-full text-left p-3 rounded-lg border-2 transition-all duration-200 ${
-                    theme === t.id
+                    activeTheme === t.id
                       ? 'border-green-400 bg-green-400/10 text-green-400'
                       : 'border-cyan-400/30 bg-gray-900/50 text-cyan-300 hover:border-cyan-400 hover:bg-cyan-400/5'
                   }`}

@@ -1,6 +1,6 @@
 'use client'
 
-import Image from 'next/image'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 interface ChatMessageProps {
   role: 'user' | 'assistant'
@@ -14,15 +14,10 @@ export default function ChatMessage({ role, content }: ChatMessageProps) {
     <div className={`flex gap-4 mb-6 animate-in fade-in slide-in-from-bottom-3 duration-500 ${isAI ? '' : 'justify-end'}`}>
       {isAI && (
         <div className="flex-shrink-0">
-          <div className="rick-avatar relative">
-            <Image
-              src="/rick-avatar.jpg"
-              alt="Rick the AI"
-              width={48}
-              height={48}
-              className="w-full h-full object-cover"
-            />
-          </div>
+          <Avatar className="rick-avatar size-12">
+            <AvatarImage src="/rick-avatar.jpg" alt="Rick the AI" className="object-cover" />
+            <AvatarFallback>R</AvatarFallback>
+          </Avatar>
         </div>
       )}
 

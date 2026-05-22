@@ -1,11 +1,15 @@
 'use client'
 
-import { useState, useRef, useEffect, FormEvent } from 'react'
+import Image from 'next/image'
+import { useState, useRef, useEffect } from 'react'
 import { useChat } from '@ai-sdk/react'
+import { DefaultChatTransport } from 'ai'
 import Header from './Header'
 import ChatMessage from './ChatMessage'
 import ChatInput from './ChatInput'
 import MemoryInspector from './MemoryInspector'
+import Settings from './Settings'
+import { APP_NAME } from '@/lib/env'
 
 interface Memory {
   id: string
@@ -13,13 +17,31 @@ interface Memory {
   timestamp: string
 }
 
+const chatTransport = new DefaultChatTransport({
+  api: '/api/chat',
+})
+
+function getMessageText(message: { content?: string; parts?: Array<{ type: string; text?: string }> }) {
+  if (typeof message.content === 'string' && message.content.trim()) {
+    return message.content
+  }
+
+  return message.parts
+    ?.filter((part): part is { type: 'text'; text: string } => part.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('')
+    .trim()
+}
+
 export default function ChatPage() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
-    api: '/api/chat',
+  const { messages, setMessages, sendMessage, status } = useChat({
+    transport: chatTransport,
   })
   const [memories, setMemories] = useState<Memory[]>([])
   const [memoryExpanded, setMemoryExpanded] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const isLoading = status === 'submitted' || status === 'streaming'
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -67,21 +89,51 @@ export default function ChatPage() {
     }
   }
 
+  const handleClearChat = () => {
+    setMessages([])
+  }
+
+  const handleSendMessage = async (message: string) => {
+    const trimmed = message.trim()
+    if (!trimmed || isLoading) {
+      return
+    }
+
+    try {
+      await sendMessage({ text: trimmed })
+    } catch (error) {
+      console.error('[v0] Failed to send chat message:', error)
+      throw error
+    }
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-background overflow-hidden">
-      <Header onMemoryToggle={() => setMemoryExpanded(!memoryExpanded)} memoryOpen={memoryExpanded} />
+    <div className="flex flex-col h-dvh bg-background overflow-hidden">
+      <Header
+        onMemoryToggle={() => setMemoryExpanded(!memoryExpanded)}
+        memoryOpen={memoryExpanded}
+        onSettingsToggle={() => setSettingsOpen(true)}
+        onClearChat={handleClearChat}
+      />
 
       <div className="flex flex-1 gap-0 overflow-hidden">
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-blue-950 via-purple-950 to-blue-950">
           {/* Messages Container */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-cyan-400 scrollbar-track-gray-900">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hidden">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
-                <div className="portal-effect w-20 h-20 border-4 border-cyan-400 rounded-full mb-6 flex items-center justify-center">
-                  <span className="text-3xl text-green-400">◇</span>
+                <div className="portal-effect w-20 h-20 overflow-hidden rounded-full border-4 border-cyan-400 mb-6">
+                  <Image
+                    src="/rick-avatar.jpg"
+                    alt="Rick avatar"
+                    width={80}
+                    height={80}
+                    className="h-full w-full object-cover"
+                    priority
+                  />
                 </div>
-                <h2 className="neon-text text-3xl mb-4">Welcome to EthioClaw</h2>
+                <h2 className="neon-text text-3xl mb-4">Welcome to {APP_NAME}</h2>
                 <p className="text-cyan-300 text-lg mb-2">An AI Agent Powered by Rick Sanchez</p>
                 <p className="text-gray-400 max-w-sm">
                   Ask me anything! I&apos;ll give you answers with a burp and a portal jump.
@@ -92,7 +144,7 @@ export default function ChatPage() {
                 <ChatMessage
                   key={index}
                   role={message.role as 'user' | 'assistant'}
-                  content={message.content}
+                  content={getMessageText(message) || '[No text content]'}
                 />
               ))
             )}
@@ -100,43 +152,7 @@ export default function ChatPage() {
           </div>
 
           {/* Input Area */}
-          <form onSubmit={handleSubmit} className="border-t-2 border-cyan-400 bg-gradient-to-r from-blue-950 to-purple-950 p-6 shadow-lg">
-            <div className="flex gap-3">
-              <div className="flex-1 relative">
-                <input
-                  type="text"
-                  value={input || ''}
-                  onChange={handleInputChange}
-                  placeholder="Ask Rick anything... (or just burp)"
-                  disabled={isLoading}
-                  className="w-full bg-gray-900 border-2 border-cyan-400 rounded-lg px-4 py-3 text-green-400 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:border-transparent transition-all duration-200 hover:border-green-400"
-                />
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-cyan-400 text-xs">
-                  ▶
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isLoading || !input || !input.trim()}
-                className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold px-6 py-3 rounded-lg border-2 border-cyan-300 transition-all duration-200 hover:shadow-lg hover:shadow-cyan-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="animate-spin">⟳</span>
-                    Thinking...
-                  </span>
-                ) : (
-                  'Send'
-                )}
-              </button>
-            </div>
-
-            <div className="mt-3 text-xs text-gray-500 flex justify-between items-center">
-              <p>💬 Press Enter or click Send</p>
-              <p className="text-green-400">█ Connected</p>
-            </div>
-          </form>
+          <ChatInput onSubmit={handleSendMessage} isLoading={isLoading} />
         </div>
 
         {/* Memory Inspector Sidebar - Opens on demand */}
@@ -160,6 +176,8 @@ export default function ChatPage() {
           </div>
         )}
       </div>
+
+      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

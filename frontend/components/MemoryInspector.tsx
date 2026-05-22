@@ -44,7 +44,7 @@ export default function MemoryInspector({
       </div>
 
       {/* Content */}
-      <div className={`flex-1 overflow-y-auto transition-all duration-300 ${isOpen ? 'block' : 'hidden'}`}>
+      <div className={`flex-1 overflow-y-auto scrollbar-hidden transition-all duration-300 ${isOpen ? 'block' : 'hidden'}`}>
         {/* Add New Memory */}
         {onAddMemory && (
           <div className="p-4 border-b border-cyan-400/30">

@@ -42,6 +42,92 @@
   --rick-purple: #a100f2;
 }
 
+html,
+.dark {
+  color-scheme: dark;
+}
+
+html[data-theme='rick'],
+:root {
+  color-scheme: dark;
+}
+
+html[data-theme='morty'] {
+  --background: #10162d;
+  --foreground: #a7c7ff;
+  --card: #182142;
+  --card-foreground: #d8e7ff;
+  --popover: #182142;
+  --popover-foreground: #d8e7ff;
+  --primary: #78a8ff;
+  --primary-foreground: #071022;
+  --secondary: #6f87c7;
+  --secondary-foreground: #ffffff;
+  --muted: #2a3558;
+  --muted-foreground: #a8b7da;
+  --accent: #8bc3ff;
+  --accent-foreground: #06101d;
+  --destructive: #ff6b8a;
+  --destructive-foreground: #ffffff;
+  --border: #2f3c66;
+  --input: #243055;
+  --ring: #8bc3ff;
+  --chart-1: #78a8ff;
+  --chart-2: #8bc3ff;
+  --chart-3: #a7c7ff;
+  --chart-4: #5dd6d6;
+  --chart-5: #b6c4ff;
+  --sidebar: #182142;
+  --sidebar-foreground: #d8e7ff;
+  --sidebar-primary: #78a8ff;
+  --sidebar-primary-foreground: #071022;
+  --sidebar-accent: #8bc3ff;
+  --sidebar-accent-foreground: #06101d;
+  --sidebar-border: #2f3c66;
+  --sidebar-ring: #8bc3ff;
+  --rick-blue: #78a8ff;
+  --rick-green: #a7c7ff;
+  --rick-purple: #8bc3ff;
+}
+
+html[data-theme='portal'] {
+  --background: #17071f;
+  --foreground: #ffccff;
+  --card: #271036;
+  --card-foreground: #ffe6ff;
+  --popover: #271036;
+  --popover-foreground: #ffe6ff;
+  --primary: #ff4fd8;
+  --primary-foreground: #17071f;
+  --secondary: #8b5cf6;
+  --secondary-foreground: #ffffff;
+  --muted: #39204d;
+  --muted-foreground: #d2b7e5;
+  --accent: #00f5ff;
+  --accent-foreground: #06101d;
+  --destructive: #ff7b9c;
+  --destructive-foreground: #ffffff;
+  --border: #523068;
+  --input: #35194a;
+  --ring: #00f5ff;
+  --chart-1: #ff4fd8;
+  --chart-2: #00f5ff;
+  --chart-3: #b56cff;
+  --chart-4: #ffb84d;
+  --chart-5: #7c3aed;
+  --sidebar: #271036;
+  --sidebar-foreground: #ffe6ff;
+  --sidebar-primary: #ff4fd8;
+  --sidebar-primary-foreground: #17071f;
+  --sidebar-accent: #00f5ff;
+  --sidebar-accent-foreground: #06101d;
+  --sidebar-border: #523068;
+  --sidebar-ring: #00f5ff;
+  --rick-blue: #00f5ff;
+  --rick-green: #ffccff;
+  --rick-purple: #ff4fd8;
+}
+
 .dark {
   --background: #0a0e27;
   --foreground: #00ff41;
@@ -126,10 +212,10 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground overflow-hidden;
   }
   html {
-    @apply bg-background;
+    @apply bg-background overflow-hidden;
   }
 }
 
@@ -224,6 +310,27 @@
   }
 }
 
-/* Hide scrollbars globally */
-::-webkit-scrollbar { display: none; }
-* { scrollbar-width: none; }
+html,
+body {
+  overscroll-behavior: none;
+}
+
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Hide scrollbars globally so the layout stays clean in both app panes. */
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

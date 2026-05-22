@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 
 interface ChatInputProps {
-  onSubmit: (message: string) => void
+  onSubmit: (message: string) => void | Promise<void>
   isLoading?: boolean
 }
 
@@ -14,8 +14,12 @@ export default function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (input.trim() && !isLoading) {
-      onSubmit(input)
-      setInput('')
+      try {
+        await onSubmit(input)
+        setInput('')
+      } catch (error) {
+        console.error('[v0] Failed to submit chat input:', error)
+      }
     }
   }
 

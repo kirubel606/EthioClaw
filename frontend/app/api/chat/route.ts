@@ -1,9 +1,11 @@
 import { openai } from '@ai-sdk/openai'
-import { convertToCoreMessages, streamText } from 'ai'
+import { convertToModelMessages, streamText } from 'ai'
+import type { NextRequest } from 'next/server'
+import { OPENAI_MODEL } from '@/lib/server-env'
 
 export const runtime = 'nodejs'
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const { messages } = await req.json()
 
@@ -27,17 +29,17 @@ When answering questions:
 
 Remember: You're EthioClaw, an AI agent helping users with genuine information and assistance, while channeling Rick Sanchez's brilliant and sarcastic personality.`
 
-    const coreMessages = convertToCoreMessages(messages)
+    const coreMessages = await convertToModelMessages(messages)
 
     const result = await streamText({
-      model: openai('gpt-4-turbo'),
+      model: openai(OPENAI_MODEL),
       system: systemPrompt,
       messages: coreMessages,
       temperature: 0.7,
-      maxTokens: 1024,
+      maxOutputTokens: 1024,
     })
 
-    return result.toDataStreamResponse()
+    return result.toUIMessageStreamResponse()
   } catch (error) {
     console.error('[v0] Chat API error:', error)
     return new Response('Internal server error', { status: 500 })

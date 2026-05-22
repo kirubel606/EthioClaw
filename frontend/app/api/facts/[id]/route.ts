@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs'
 import path from 'path'
+import type { NextRequest } from 'next/server'
 
 const factsFile = path.join(process.cwd(), 'data', 'facts.json')
 
@@ -30,11 +31,11 @@ async function writeFacts(facts: any[]) {
 }
 
 export async function DELETE(
-  req: Request,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await Promise.resolve(params)
+    const { id } = await params
 
     const facts = await readFacts()
     const filtered = facts.filter((f: any) => f.id !== id)
