@@ -1,14 +1,26 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 import traceback
 
-from schema import ChatRequest, ChatResponse, ChatPayload
+from schema import ChatRequest, ChatResponse, ChatPayload, DocumentUploadResponse, UploadedDocument
 
 from services.memory_service   import retrieve_context, save_message, setup_collection_async
 from services.memory_extractor import extract_facts
 from services.memory_schema    import MemoryType, MemoryFact
 from services.prompt_builder   import build_prompt
 from services.ai_service       import ask_model
+from services.conversation_cache import (
+    append_turn,
+    get_recent_turns,
+    get_summary,
+    refresh_summary,
+)
+from services.agent_tools import build_tool_bundle, generate_artifact
+from services.document_service import (
+    index_document,
+    retrieve_document_context,
+    setup_document_collection_async,
+)
 
 from services.fact_db import (
     init_db,
@@ -46,6 +58,7 @@ app.add_middleware(
 async def startup():
     await init_db()
     await setup_collection_async()
+    await setup_document_collection_async()
 
 
 # -------------------------
@@ -64,6 +77,8 @@ async def chat(request: dict = Body(...)):
         request_message = request["message"]
     else:
         raise HTTPException(status_code=400, detail="Invalid request payload")
+
+    session_id = str(request.get("session_id") or request.get("conversation_id") or "default")
 
     try:
 
@@ -138,22 +153,39 @@ async def chat(request: dict = Body(...)):
             if k not in identity_facts_dict
         )
 
-        # ── STEP 5: Retrieve ranked semantic memory from Qdrant ──────────────
-        context = await retrieve_context(request_message)
+        # ── STEP 5: Retrieve short-term cache + tool output ─────────────────
+        working_summary = await get_summary(session_id)
+        recent_turns = await get_recent_turns(session_id, limit=8)
+        recent_turn_block = "\n".join(
+            f"  {turn['role']}: {turn['content']}" for turn in recent_turns
+        )
+        tool_bundle = await build_tool_bundle(request_message)
 
-        # ── STEP 6: Build strictly layered prompt ───────────────────────────
+        # ── STEP 6: Retrieve ranked semantic memory from Qdrant ──────────────
+        context = await retrieve_context(request_message, limit=8)
+        document_context = await retrieve_document_context(
+            request_message,
+            session_id=session_id,
+            limit=8,
+        )
+
+        # ── STEP 7: Build strictly layered prompt ───────────────────────────
         final_prompt = build_prompt(
             user_message=request_message,
             identity_facts=identity_block,
             general_facts=general_block,
-            context=context
+            context=context,
+            document_context=document_context,
+            recent_turns=recent_turn_block,
+            working_summary=working_summary,
+            tool_context=tool_bundle.context,
         )
 
-        # ── STEP 7: Call LLM ─────────────────────────────────────────────────
-        ai_response = await ask_model(final_prompt)
+        # ── STEP 8: Call LLM ─────────────────────────────────────────────────
+        assistant_text = await ask_model(final_prompt)
 
-        # ── STEP 8: Hallucination check (Phase 4) ────────────────────────────
-        verification = await verify_response(ai_response, all_facts_dict)
+        # ── STEP 9: Hallucination check (Phase 4) ────────────────────────────
+        verification = await verify_response(assistant_text, all_facts_dict)
 
         if not verification.get("valid", True):
             violations = verification.get("violations", [])
@@ -161,11 +193,22 @@ async def chat(request: dict = Body(...)):
             # Log but still return response (fail-open policy)
             # To block instead: raise HTTPException(status_code=500, detail=...)
 
-        # ── STEP 9: Save conversation to Qdrant ──────────────────────────────
+        ai_response = assistant_text
+
+        # If the request asked for a document, create the file from the response.
+        if tool_bundle.artifact_kind:
+            artifact_title = tool_bundle.artifact_title or "generated-content"
+            artifact_path = generate_artifact(tool_bundle.artifact_kind, artifact_title, assistant_text)
+            ai_response = f"{assistant_text}\n\nGenerated file: {artifact_path.as_posix()}"
+
+        # ── STEP 10: Save conversation to Qdrant and short-term cache ────────
         await save_message("user",      request_message)
         await save_message("assistant", ai_response)
+        await append_turn(session_id, "user", request_message)
+        await append_turn(session_id, "assistant", ai_response)
+        await refresh_summary(session_id, request_message, ai_response)
 
-        # ── STEP 10: Return ───────────────────────────────────────────────────
+        # ── STEP 11: Return ──────────────────────────────────────────────────
         return ChatResponse(response=ai_response)
 
     except Exception as e:
@@ -176,6 +219,39 @@ async def chat(request: dict = Body(...)):
             status_code=500,
             detail=str(e) or "Internal Server Error (see logs)"
         )
+
+
+@app.post("/documents/upload", response_model=DocumentUploadResponse)
+async def upload_documents(
+    session_id: str = Form("default"),
+    files: list[UploadFile] = File(...),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    indexed_files: list[UploadedDocument] = []
+
+    try:
+        for upload in files:
+            raw_bytes = await upload.read()
+            result = await index_document(session_id, upload.filename, raw_bytes)
+            indexed_files.append(UploadedDocument(**result.model_dump()))
+
+        uploaded_names = ", ".join(item.filename for item in indexed_files) or "files"
+        indexed_count = sum(item.chunks_indexed for item in indexed_files)
+        confirmation_text = f"Indexed uploaded files: {uploaded_names}"
+        summary_text = f"Indexed {len(indexed_files)} uploaded files with {indexed_count} document chunks."
+        await append_turn(session_id, "system", confirmation_text)
+        await refresh_summary(session_id, summary_text, confirmation_text)
+
+        return DocumentUploadResponse(
+            status="success",
+            session_id=session_id,
+            files=indexed_files,
+        )
+    except Exception as e:
+        print("[ERROR] Failed to upload documents:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # -------------------------

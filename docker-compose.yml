@@ -14,6 +14,7 @@ services:
     depends_on:
       - qdrant
       - postgres
+      - redis
 
   postgres:
     image: postgres:16
@@ -50,6 +51,12 @@ services:
 
     volumes:
       - qdrant_data:/qdrant/storage
+
+  redis:
+    image: redis:7-alpine
+    container_name: memory_cache
+    ports:
+      - "6379:6379"
 
   frontend:
     build: ./frontend

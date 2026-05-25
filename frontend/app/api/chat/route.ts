@@ -5,7 +5,7 @@ export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json()
+    const { messages, session_id } = await req.json()
     // Concatenate all text parts if using the new format, otherwise fallback
     let userMessage: string
     if (Array.isArray(messages)) {
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const backendResponse = await fetch(`${BACKEND_URL}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: userMessage })
+      body: JSON.stringify({ message: userMessage, session_id: session_id || 'default' })
     })
 
     if (!backendResponse.ok) {

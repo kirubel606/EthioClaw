@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import datetime
 from ollama import Client
 from fastapi.concurrency import run_in_threadpool
 
@@ -81,6 +82,7 @@ def save_message_sync(role: str, message: str):
                 payload={
                     "role":    role,
                     "message": message
+                    ,"created_at": datetime.utcnow().isoformat()
                 }
             )
         ]

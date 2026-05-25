@@ -21,17 +21,27 @@ interface Message {
   content: string
 }
 
+interface UploadedFile {
+  filename: string
+  file_type: string
+  chunks_indexed: number
+  characters: number
+}
+
 // Backend URL — reads the public env var baked in at build time,
 // falls back to localhost for local dev.
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || 'http://127.0.0.1:8000'
+const SESSION_STORAGE_KEY = 'ethio_claw_session_id'
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
   const [memories, setMemories] = useState<Memory[]>([])
   const [memoryExpanded, setMemoryExpanded] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sessionId, setSessionId] = useState('default')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<any>(null)
 
@@ -54,6 +64,17 @@ export default function ChatPage() {
       }
     }
     loadMemories()
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    let stored = window.localStorage.getItem(SESSION_STORAGE_KEY)
+    if (!stored) {
+      stored = `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      window.localStorage.setItem(SESSION_STORAGE_KEY, stored)
+    }
+    setSessionId(stored)
   }, [])
 
   const handleAddMemory = async (fact: string) => {
@@ -85,6 +106,59 @@ export default function ChatPage() {
     setMessages([])
   }
 
+  const handleFilesSelected = async (files: File[]) => {
+    if (!files.length || isUploading) return
+
+    setIsUploading(true)
+    try {
+      const formData = new FormData()
+      files.forEach((file) => {
+        formData.append('files', file)
+      })
+      formData.append('session_id', sessionId)
+
+      const res = await fetch(`${BACKEND_URL}/documents/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(errText || `Upload failed with status ${res.status}`)
+      }
+
+      const data = (await res.json()) as {
+        status: string
+        session_id: string
+        files: UploadedFile[]
+      }
+
+      const fileSummary = data.files
+        .map((file) => `${file.filename} (${file.chunks_indexed} chunks)`)
+        .join(', ')
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `Indexed uploaded files into RAG: ${fileSummary || 'no readable content found'}.`,
+        },
+      ])
+    } catch (error) {
+      console.error('[ChatPage] File upload failed:', error)
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: `⚠️ Could not index uploaded files: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      ])
+    } finally {
+      setIsUploading(false)
+      chatInputRef.current?.clearFiles()
+    }
+  }
+
   const handleSendMessage = async (message: string) => {
     const trimmed = message.trim()
     if (!trimmed || isLoading) return
@@ -99,7 +173,7 @@ export default function ChatPage() {
       const res = await fetch(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify({ message: trimmed, session_id: sessionId }),
       })
 
       if (!res.ok) {
@@ -200,7 +274,13 @@ export default function ChatPage() {
           </div>
 
           {/* Input Area */}
-          <ChatInput ref={chatInputRef} onSubmit={handleSendMessage} isLoading={isLoading} />
+          <ChatInput
+            ref={chatInputRef}
+            onSubmit={handleSendMessage}
+            onFilesSelected={handleFilesSelected}
+            isLoading={isLoading}
+            isUploading={isUploading}
+          />
         </div>
 
         {/* Memory Inspector Sidebar - Opens on demand */}
