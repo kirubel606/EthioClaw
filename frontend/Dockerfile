@@ -2,7 +2,7 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install
 
 FROM node:22-alpine AS builder
 WORKDIR /app
@@ -21,7 +21,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
+ENV HOST=0.0.0.0
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./

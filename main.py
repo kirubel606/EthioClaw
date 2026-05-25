@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
+from fastapi.middleware.cors import CORSMiddleware
 import traceback
 
-from schema import ChatRequest, ChatResponse
+from schema import ChatRequest, ChatResponse, ChatPayload
 
 from services.memory_service   import retrieve_context, save_message, setup_collection_async
 from services.memory_extractor import extract_facts
@@ -28,6 +29,15 @@ from services.fact_verifier import verify_response
 
 app = FastAPI()
 
+# Allow the frontend (and any other origin during development) to call the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],       # tighten in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # -------------------------
 # STARTUP
@@ -42,12 +52,23 @@ async def startup():
 # CHAT ENDPOINT
 # -------------------------
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: dict = Body(...)):
+    """Accept both the new ChatPayload format and the legacy simple format.
+    The function extracts a unified `request_message` string for downstream processing.
+    """
+    # New format: parts list
+    if "parts" in request and isinstance(request["parts"], list):
+        request_message = "".join(part.get("text", "") for part in request["parts"])
+    # Legacy format: simple message field
+    elif "message" in request:
+        request_message = request["message"]
+    else:
+        raise HTTPException(status_code=400, detail="Invalid request payload")
 
     try:
 
         # ── STEP 1: Extract typed facts from the user message ───────────────
-        extracted = await extract_facts(request.message)
+        extracted = await extract_facts(request_message)
         new_facts = extracted.facts
 
         # ── STEP 2: Contradiction detection ─────────────────────────────────
@@ -118,11 +139,11 @@ async def chat(request: ChatRequest):
         )
 
         # ── STEP 5: Retrieve ranked semantic memory from Qdrant ──────────────
-        context = await retrieve_context(request.message)
+        context = await retrieve_context(request_message)
 
         # ── STEP 6: Build strictly layered prompt ───────────────────────────
         final_prompt = build_prompt(
-            user_message=request.message,
+            user_message=request_message,
             identity_facts=identity_block,
             general_facts=general_block,
             context=context
@@ -141,7 +162,7 @@ async def chat(request: ChatRequest):
             # To block instead: raise HTTPException(status_code=500, detail=...)
 
         # ── STEP 9: Save conversation to Qdrant ──────────────────────────────
-        await save_message("user",      request.message)
+        await save_message("user",      request_message)
         await save_message("assistant", ai_response)
 
         # ── STEP 10: Return ───────────────────────────────────────────────────

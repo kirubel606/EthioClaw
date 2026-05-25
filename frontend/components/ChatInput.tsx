@@ -1,15 +1,29 @@
-'use client'
-
-import { useState } from 'react'
+import { useState, useImperativeHandle, forwardRef, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+
+export interface ChatInputRef {
+  appendQuote: (text: string) => void
+}
 
 interface ChatInputProps {
   onSubmit: (message: string) => void | Promise<void>
   isLoading?: boolean
 }
 
-export default function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
-  const [input, setInput] = useState('')
+export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
+  ({ onSubmit, isLoading }, ref) => {
+    const [input, setInput] = useState('')
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useImperativeHandle(ref, () => ({
+      appendQuote(text: string) {
+        setInput((prev) => `> "${text}"\n\n${prev}`)
+        // Focus the input field after appending
+        setTimeout(() => {
+          inputRef.current?.focus()
+        }, 50)
+      },
+    }))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,6 +45,7 @@ export default function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
       <div className="flex gap-3">
         <div className="flex-1 relative">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -65,4 +80,6 @@ export default function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
       </div>
     </form>
   )
-}
+})
+
+export default ChatInput

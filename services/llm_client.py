@@ -6,7 +6,7 @@ OLLAMA_URL = os.getenv("OLLAMA_URL") + "/api/generate"
 MODEL_NAME = os.getenv("MODEL_NAME")
 
 async def call_llm(prompt: str):
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             OLLAMA_URL,
             json={

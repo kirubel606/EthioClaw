@@ -2,14 +2,13 @@
 
 import Image from 'next/image'
 import { useState, useRef, useEffect } from 'react'
-import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport } from 'ai'
 import Header from './Header'
 import ChatMessage from './ChatMessage'
 import ChatInput from './ChatInput'
 import MemoryInspector from './MemoryInspector'
 import Settings from './Settings'
 import { APP_NAME } from '@/lib/env'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 interface Memory {
   id: string
@@ -17,36 +16,29 @@ interface Memory {
   timestamp: string
 }
 
-const chatTransport = new DefaultChatTransport({
-  api: '/api/chat',
-})
-
-function getMessageText(message: { content?: string; parts?: Array<{ type: string; text?: string }> }) {
-  if (typeof message.content === 'string' && message.content.trim()) {
-    return message.content
-  }
-
-  return message.parts
-    ?.filter((part): part is { type: 'text'; text: string } => part.type === 'text' && typeof part.text === 'string')
-    .map((part) => part.text)
-    .join('')
-    .trim()
+interface Message {
+  role: 'user' | 'assistant'
+  content: string
 }
 
+// Backend URL — reads the public env var baked in at build time,
+// falls back to localhost for local dev.
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || 'http://127.0.0.1:8000'
+
 export default function ChatPage() {
-  const { messages, setMessages, sendMessage, status } = useChat({
-    transport: chatTransport,
-  })
+  const [messages, setMessages] = useState<Message[]>([])
+  const [isLoading, setIsLoading] = useState(false)
   const [memories, setMemories] = useState<Memory[]>([])
   const [memoryExpanded, setMemoryExpanded] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const isLoading = status === 'submitted' || status === 'streaming'
+  const chatInputRef = useRef<any>(null)
 
-  // Scroll to bottom when new messages arrive
+  // Scroll to bottom when new messages arrive or loading state changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, isLoading])
 
   // Load memories on mount
   useEffect(() => {
@@ -95,15 +87,47 @@ export default function ChatPage() {
 
   const handleSendMessage = async (message: string) => {
     const trimmed = message.trim()
-    if (!trimmed || isLoading) {
-      return
-    }
+    if (!trimmed || isLoading) return
+
+    // 1. Immediately show the user message
+    const userMsg: Message = { role: 'user', content: trimmed }
+    setMessages((prev) => [...prev, userMsg])
+    setIsLoading(true)
 
     try {
-      await sendMessage({ text: trimmed })
+      // 2. POST directly to the FastAPI backend
+      const res = await fetch(`${BACKEND_URL}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed }),
+      })
+
+      if (!res.ok) {
+        const errText = await res.text()
+        console.error('[ChatPage] Backend error:', res.status, errText)
+        const errorMsg: Message = {
+          role: 'assistant',
+          content: `⚠️ Backend error (${res.status}): ${errText}`,
+        }
+        setMessages((prev) => [...prev, errorMsg])
+        return
+      }
+
+      // 3. Parse the JSON response — backend returns { "response": "..." }
+      const data = await res.json()
+      const assistantText = data.response || data.message || JSON.stringify(data)
+
+      const assistantMsg: Message = { role: 'assistant', content: assistantText }
+      setMessages((prev) => [...prev, assistantMsg])
     } catch (error) {
-      console.error('[v0] Failed to send chat message:', error)
-      throw error
+      console.error('[ChatPage] Fetch error:', error)
+      const errorMsg: Message = {
+        role: 'assistant',
+        content: '⚠️ Could not reach the backend. Is it running?',
+      }
+      setMessages((prev) => [...prev, errorMsg])
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -140,19 +164,43 @@ export default function ChatPage() {
                 </p>
               </div>
             ) : (
-              messages.map((message, index) => (
-                <ChatMessage
-                  key={index}
-                  role={message.role as 'user' | 'assistant'}
-                  content={getMessageText(message) || '[No text content]'}
-                />
-              ))
+              <>
+                {messages.map((message, index) => (
+                  <ChatMessage
+                    key={index}
+                    role={message.role}
+                    content={message.content}
+                    onQuote={(text) => chatInputRef.current?.appendQuote(text)}
+                  />
+                ))}
+                {isLoading && (
+                  <div className="flex gap-4 mb-6 animate-pulse duration-1000">
+                    <div className="flex-shrink-0">
+                      <Avatar className="rick-avatar size-12">
+                        <AvatarImage src="/rick-avatar.jpg" alt="Rick the AI" className="object-cover" />
+                        <AvatarFallback>R</AvatarFallback>
+                      </Avatar>
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <p className="text-cyan-300 text-xs mb-2 font-semibold">RICK (AI Agent)</p>
+                      <div className="message-bubble message-bubble-ai flex items-center gap-2">
+                        <span className="text-sm">Thinking</span>
+                        <span className="flex gap-1 items-center">
+                          <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                          <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                          <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-bounce"></span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
             <div ref={messagesEndRef} />
           </div>
 
           {/* Input Area */}
-          <ChatInput onSubmit={handleSendMessage} isLoading={isLoading} />
+          <ChatInput ref={chatInputRef} onSubmit={handleSendMessage} isLoading={isLoading} />
         </div>
 
         {/* Memory Inspector Sidebar - Opens on demand */}

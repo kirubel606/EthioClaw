@@ -9,3 +9,9 @@ export const DEFAULT_THEME =
     : 'rick'
 
 export const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || 'gpt-4-turbo'
+
+// Backend API URL – used by the chat route
+export const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL?.trim() ||
+  process.env.BACKEND_URL?.trim() ||
+  'http://127.0.0.1:8000'

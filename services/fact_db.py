@@ -18,7 +18,19 @@ pool = None
 async def init_db():
     global pool
 
-    pool = await asyncpg.create_pool(**DB_CONFIG)
+    retries = 10
+    delay = 2
+    for attempt in range(1, retries + 1):
+        try:
+            pool = await asyncpg.create_pool(**DB_CONFIG)
+            print("[DB CONNECT] Successfully connected to Postgres database.")
+            break
+        except Exception as e:
+            if attempt == retries:
+                print(f"[DB ERROR] Final connection attempt {attempt} failed: {e}")
+                raise e
+            print(f"[DB CONNECT] Attempt {attempt} failed: {e}. Retrying in {delay}s...")
+            await asyncio.sleep(delay)
 
     async with pool.acquire() as conn:
         # Typed schema: memory_type, confidence, source, updated_at
