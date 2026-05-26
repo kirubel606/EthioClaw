@@ -34,6 +34,8 @@ Rules:
 - Only flag DIRECT contradictions (e.g. facts say age=26, response says age=30).
 - Do NOT flag if a fact is simply absent from the response (that is fine).
 - Do NOT flag persona/tone differences.
+- Do NOT flag unsupported titles, honorifics, nicknames, fictional labels, or role-play style phrases unless they directly contradict a verified fact.
+- If the response uses a title or descriptor without a matching fact, treat it as harmless unless it asserts a concrete user attribute that conflicts with the facts.
 
 Respond with ONLY valid JSON, no markdown:
 {{"valid": true}}

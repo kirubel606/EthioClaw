@@ -37,9 +37,9 @@
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #2d3456;
   --sidebar-ring: #00d4ff;
-  --rick-blue: #1e90ff;
-  --rick-green: #00ff41;
-  --rick-purple: #a100f2;
+  --theme-blue: #1e90ff;
+  --theme-green: #00ff41;
+  --theme-purple: #a100f2;
 }
 
 html,
@@ -47,7 +47,7 @@ html,
   color-scheme: dark;
 }
 
-html[data-theme='rick'],
+html[data-theme='toxic'],
 :root {
   color-scheme: dark;
 }
@@ -85,9 +85,9 @@ html[data-theme='morty'] {
   --sidebar-accent-foreground: #06101d;
   --sidebar-border: #2f3c66;
   --sidebar-ring: #8bc3ff;
-  --rick-blue: #78a8ff;
-  --rick-green: #a7c7ff;
-  --rick-purple: #8bc3ff;
+  --theme-blue: #78a8ff;
+  --theme-green: #a7c7ff;
+  --theme-purple: #8bc3ff;
 }
 
 html[data-theme='portal'] {
@@ -123,9 +123,9 @@ html[data-theme='portal'] {
   --sidebar-accent-foreground: #06101d;
   --sidebar-border: #523068;
   --sidebar-ring: #00f5ff;
-  --rick-blue: #00f5ff;
-  --rick-green: #ffccff;
-  --rick-purple: #ff4fd8;
+  --theme-blue: #00f5ff;
+  --theme-green: #ffccff;
+  --theme-purple: #ff4fd8;
 }
 
 .dark {
@@ -161,14 +161,12 @@ html[data-theme='portal'] {
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #2d3456;
   --sidebar-ring: #00d4ff;
-  --rick-blue: #1e90ff;
-  --rick-green: #00ff41;
-  --rick-purple: #a100f2;
+  --theme-blue: #1e90ff;
+  --theme-green: #00ff41;
+  --theme-purple: #a100f2;
 }
 
-@theme inline {
-  --font-sans: 'Geist', 'Geist Fallback';
-  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+@theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -289,7 +287,7 @@ html[data-theme='portal'] {
     animation: border-glow 2s ease-in-out infinite;
   }
 
-  .rick-avatar {
+  .ai-avatar {
     @apply w-12 h-12 rounded-full overflow-hidden border-2 border-cyan-400;
     box-shadow:
       0 0 10px rgba(34, 211, 238, 0.6),

@@ -70,7 +70,7 @@ async def create_embedding_async(text: str):
 # -------------------------
 # SAVE MESSAGE
 # -------------------------
-def save_message_sync(role: str, message: str):
+def save_message_sync(role: str, message: str, session_id: str = "default"):
     embedding = create_embedding(message)
 
     client.upsert(
@@ -81,27 +81,39 @@ def save_message_sync(role: str, message: str):
                 vector=embedding,
                 payload={
                     "role":    role,
-                    "message": message
-                    ,"created_at": datetime.utcnow().isoformat()
+                    "message": message,
+                    "session_id": session_id,
+                    "created_at": datetime.utcnow().isoformat()
                 }
             )
         ]
     )
 
 
-async def save_message(role: str, message: str):
-    await run_in_threadpool(save_message_sync, role, message)
+async def save_message(role: str, message: str, session_id: str = "default"):
+    await run_in_threadpool(save_message_sync, role, message, session_id)
 
 
 # -------------------------
-# RETRIEVE CONTEXT (score-filtered + ranked)
+# RETRIEVE CONTEXT (score-filtered + ranked + session-scoped)
 # -------------------------
-def retrieve_context_sync(query: str, limit: int = 5) -> str:
+def retrieve_context_sync(query: str, session_id: str | None = None, limit: int = 5) -> str:
     embedding = create_embedding(query)
+
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+    query_filter = None
+    if session_id:
+        query_filter = Filter(
+            must=[
+                FieldCondition(key="session_id", match=MatchValue(value=session_id))
+            ]
+        )
 
     results = client.query_points(
         collection_name=COLLECTION_NAME,
         query=embedding,
+        query_filter=query_filter,
         limit=limit
     ).points
 
@@ -109,21 +121,31 @@ def retrieve_context_sync(query: str, limit: int = 5) -> str:
     filtered = [r for r in results if r.score >= SCORE_THRESHOLD]
 
     if not filtered:
-        print(f"ℹ️  No semantic memory above threshold {SCORE_THRESHOLD} for query.")
-        return ""
+        # If no session-specific results, try searching all sessions as a fallback
+        if session_id:
+             results = client.query_points(
+                collection_name=COLLECTION_NAME,
+                query=embedding,
+                limit=limit
+            ).points
+             filtered = [r for r in results if r.score >= SCORE_THRESHOLD]
+        
+        if not filtered:
+            print(f"ℹ️  No semantic memory above threshold {SCORE_THRESHOLD} for query.")
+            return ""
 
     # Sort by score descending (highest relevance first)
     filtered.sort(key=lambda r: r.score, reverse=True)
 
     context_lines = []
     for result in filtered:
-        role    = result.payload["role"]
-        message = result.payload["message"]
+        role    = result.payload.get("role", "unknown")
+        message = result.payload.get("message", "")
         score   = round(result.score, 3)
         context_lines.append(f"[score={score}] {role}: {message}")
 
     return "\n".join(context_lines)
 
 
-async def retrieve_context(query: str, limit: int = 5) -> str:
-    return await run_in_threadpool(retrieve_context_sync, query, limit)
+async def retrieve_context(query: str, session_id: str | None = None, limit: int = 5) -> str:
+    return await run_in_threadpool(retrieve_context_sync, query, session_id, limit)

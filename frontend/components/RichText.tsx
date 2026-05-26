@@ -46,18 +46,18 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   }
 
   return (
-    <div className="my-4 rounded-lg overflow-hidden border border-cyan-400 bg-gray-950 font-mono text-xs sm:text-sm">
-      <div className="bg-gray-900 px-4 py-2 flex items-center justify-between border-b border-cyan-400/30 text-cyan-300">
-        <span className="uppercase text-[10px] tracking-wider font-bold">{lang || 'code'}</span>
+    <div className="my-4 rounded-lg overflow-hidden border border-border bg-background font-mono text-xs sm:text-sm shadow-inner">
+      <div className="bg-muted/50 px-4 py-2 flex items-center justify-between border-b border-border text-primary font-bold">
+        <span className="uppercase text-[10px] tracking-wider">{lang || 'code'}</span>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-400/50 hover:border-cyan-400 text-cyan-300 transition-all duration-200"
+          className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted hover:bg-muted/80 border border-border text-foreground transition-all duration-200"
           title="Copy to clipboard"
         >
           {copied ? (
             <>
-              <Check className="size-3.5 text-green-400" />
-              <span className="text-green-400">Copied!</span>
+              <Check className="size-3.5 text-green-500" />
+              <span className="text-green-500">Copied!</span>
             </>
           ) : (
             <>
@@ -67,7 +67,7 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
           )}
         </button>
       </div>
-      <pre className="p-4 overflow-x-auto scrollbar-hidden text-green-400 leading-relaxed whitespace-pre">
+      <pre className="p-4 overflow-x-auto scrollbar-hidden text-foreground leading-relaxed whitespace-pre">
         <code>{code}</code>
       </pre>
     </div>
@@ -84,7 +84,6 @@ function InlineText({ text }: { text: string }) {
   const ytId = ytMatch ? ytMatch[1] : null
 
   // Render inline elements using structured splits
-  // First, parse bold, inline code, images, and links
   const renderInline = (input: string) => {
     // Split by Markdown elements
     const parts = input.split(/(!\[.*?\]\(.*?\)|\[.*?\]\(.*?\)|\*\*.*?\*\*|`.*?`)/g)
@@ -96,7 +95,7 @@ function InlineText({ text }: { text: string }) {
         const url = part.substring(part.indexOf('](') + 2, part.length - 1)
         return (
           <span key={index} className="block my-3">
-            <span className="relative block rounded-lg overflow-hidden border-2 border-cyan-400 max-w-md aspect-video">
+            <span className="relative block rounded-lg overflow-hidden border-2 border-border max-w-md aspect-video shadow-md">
               <Image
                 src={url}
                 alt={alt || 'Embedded image'}
@@ -105,7 +104,7 @@ function InlineText({ text }: { text: string }) {
                 unoptimized
               />
             </span>
-            {alt && <span className="text-xs text-gray-500 mt-1 block text-center italic">{alt}</span>}
+            {alt && <span className="text-xs text-muted-foreground mt-1 block text-center italic">{alt}</span>}
           </span>
         )
       }
@@ -114,13 +113,19 @@ function InlineText({ text }: { text: string }) {
       if (part.startsWith('[') && part.includes('](')) {
         const label = part.substring(1, part.indexOf(']'))
         const url = part.substring(part.indexOf('](') + 2, part.length - 1)
+        const isArtifactLink =
+          /generated file|download/i.test(label) || /\.(pptx|pdf|docx)$/i.test(url)
         return (
           <a
             key={index}
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-0.5 text-cyan-400 hover:text-cyan-300 underline font-semibold transition-colors"
+            className={
+              isArtifactLink
+                ? 'inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground font-bold border border-border shadow-lg hover:opacity-90 transition-all duration-200 no-underline'
+                : 'inline-flex items-center gap-0.5 text-primary hover:opacity-80 underline font-semibold transition-colors'
+            }
           >
             {label}
             <ExternalLink className="size-3" />
@@ -131,7 +136,7 @@ function InlineText({ text }: { text: string }) {
       // Bold: **text**
       if (part.startsWith('**') && part.endsWith('**')) {
         return (
-          <strong key={index} className="font-extrabold text-cyan-300">
+          <strong key={index} className="font-extrabold text-primary">
             {part.substring(2, part.length - 2)}
           </strong>
         )
@@ -140,7 +145,7 @@ function InlineText({ text }: { text: string }) {
       // Inline code: `code`
       if (part.startsWith('`') && part.endsWith('`')) {
         return (
-          <code key={index} className="px-1.5 py-0.5 rounded bg-gray-900 border border-cyan-400/30 text-green-400 font-mono text-xs sm:text-sm">
+          <code key={index} className="px-1.5 py-0.5 rounded bg-muted border border-border text-primary font-mono text-xs sm:text-sm">
             {part.substring(1, part.length - 1)}
           </code>
         )
@@ -166,7 +171,7 @@ function InlineText({ text }: { text: string }) {
 
       {/* YouTube Embed */}
       {ytId && (
-        <div className="my-4 rounded-lg overflow-hidden border-2 border-cyan-400 aspect-video max-w-xl shadow-lg shadow-cyan-500/10">
+        <div className="my-4 rounded-lg overflow-hidden border-2 border-border aspect-video max-w-xl shadow-lg">
           <iframe
             width="100%"
             height="100%"

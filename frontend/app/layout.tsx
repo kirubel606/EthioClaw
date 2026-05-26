@@ -6,12 +6,14 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { APP_NAME, THEME_STORAGE_KEY } from '@/lib/env'
 import { DEFAULT_THEME } from '@/lib/server-env'
 
+import { Toaster } from '@/components/ui/toaster'
+
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: `${APP_NAME} - Rick and Morty AI Agent`,
-  description: 'An awesome AI agent chat interface with Rick and Morty theme',
+  title: `${APP_NAME} - Advanced Cognitive AI Agent`,
+  description: 'An awesome AI agent chat interface with cognitive memory systems',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -45,12 +47,14 @@ export default function RootLayout({
           defaultTheme={DEFAULT_THEME}
           enableSystem={false}
           storageKey={THEME_STORAGE_KEY}
-          themes={['rick', 'morty', 'portal']}
+          themes={['toxic', 'morty', 'portal', 'custom']}
+
           disableTransitionOnChange
         >
           {children}
         </ThemeProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
+        <Toaster />
       </body>
     </html>
   )

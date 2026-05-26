@@ -69,14 +69,14 @@ BACKEND_URL=http://backend:8000
 #### Request Payload
 ```json
 {
-  "message": "Hello, my name is Rick and I am a 70 year old scientist."
+  "message": "Hello, my name is John and I am a software engineer."
 }
 ```
 
 #### Response Payload
 ```json
 {
-  "response": "Wubba lubba dub dub! Nice to meet you, Rick. What kind of experiments are we doing today?"
+  "response": "Hello John! It's great to meet a software engineer. How can I assist you today?"
 }
 ```
 
@@ -93,21 +93,14 @@ BACKEND_URL=http://backend:8000
   "facts": [
     {
       "key": "name",
-      "value": "Rick",
-      "memory_type": "identity",
-      "confidence": 1.0,
-      "source": "user"
-    },
-    {
-      "key": "age",
-      "value": "70",
+      "value": "John",
       "memory_type": "identity",
       "confidence": 1.0,
       "source": "user"
     },
     {
       "key": "occupation",
-      "value": "scientist",
+      "value": "software engineer",
       "memory_type": "identity",
       "confidence": 1.0,
       "source": "user"
@@ -118,7 +111,7 @@ BACKEND_URL=http://backend:8000
 
 ---
 
-### 3.3. Inject Fact Manually
+### 3.3. Inject/Update Fact Manually
 * **Endpoint**: `POST /facts`
 * **Description**: Manually inserts or overwrites a fact in the ground truth Postgres database.
 * **Content-Type**: `application/json`
@@ -127,7 +120,7 @@ BACKEND_URL=http://backend:8000
 ```json
 {
   "key": "favorite_drink",
-  "value": "Fruit Punch",
+  "value": "Coffee",
   "memory_type": "preference",
   "confidence": 0.95,
   "source": "user"
@@ -177,7 +170,7 @@ To build a complete controller interface, your frontend should implement these k
 ### 3. Ground Truth Memory Inspector (Split View - 40% Width)
 * **Facts List**: A structured table or list showing all user facts retrieved from Postgres (`GET /facts`).
   * Shows: **Key**, **Value**, **Type** (color-coded badges based on class/trust level), **Confidence**, and **Actions**.
-  * Actions include **Edit** (triggers an edit modal) and **Delete** (triggers a `DELETE /facts/{key}` request).
+  * Actions include **Edit** (triggers an edit modal or inline edit) and **Delete** (triggers a `DELETE /facts/{key}` request).
 * **Manual Injector**: A form at the bottom allowing rapid fact insertion:
   * Input for Key and Value.
   * Selection dropdown for Type (`identity`, `preference`, `general`).
@@ -236,3 +229,25 @@ config = rx.Config(
     disable_plugins=[SitemapPlugin],
 )
 ```
+
+## Changes Implemented:
+
+1.  **Memory Bank Functionality Enhancements**:
+    *   **Toast Notifications**: Integrated `useToast` for visual feedback on memory operations. Users now receive success/error toast notifications when adding, deleting, or editing memories.
+    *   **Memory Refetching**: The memory list automatically refetches from the backend after add, delete, or edit operations, ensuring the UI is always up-to-date.
+    *   **Edit Functionality**:
+        *   The `Memory` interface was updated to include all fields (`key`, `value`, `memory_type`, `confidence`, `source`, `timestamp`) returned by the backend's `/facts` endpoint.
+        *   `MemoryInspector.tsx` now supports inline editing of fact values. Each memory item displays an "Edit" button that, when clicked, transforms the displayed fact into an editable input field. "Save" and "Cancel" buttons are provided for managing changes.
+        *   A new `onEditMemory` prop was added to `MemoryInspector.tsx` to handle the update logic.
+        *   The `handleEditMemory` function was implemented in `ChatPage.tsx` to make the `POST /facts` API call for updating facts and managing toast notifications.
+
+2.  **Custom Theme Color Picker Enhancements**:
+    *   `tailwind.config.js` was updated to directly consume CSS variables (`var(--...)`) for all theme-related colors (`background`, `foreground`, `primary`, `secondary`, `accent`, `border`, `card`, `popover`, `muted`, `input`, `ring`, `destructive`, `chart-*`, and `sidebar-*`). This ensures that custom colors selected via the settings modal are correctly applied throughout the UI via Tailwind CSS classes.
+
+3.  **"Rick and Morty" References Removal**:
+    *   All explicit "Rick and Morty" references, including character names, avatar images (`rick-avatar.jpg`), and persona descriptions in `frontend/components/ChatPage.tsx`, `frontend/components/ChatMessage.tsx`, `frontend/components/ChatInput.tsx`, `frontend/components/Header.tsx`, `frontend/components/MemoryInspector.tsx`, `frontend/app/layout.tsx`, `services/persona_prompt.py`, and `services/system_prompt.py` have been replaced with generic "AI Assistant" branding and a more professional persona.
+    *   The default theme name was changed from `rick` to `toxic`.
+    *   The `portal-effect` class and any direct image imports of `rick-avatar.jpg` were removed.
+    *   Lingering `--rick-` CSS variables in `frontend/app/globals.css` were updated to `--theme-`.
+
+These changes make the frontend more robust, user-friendly, and visually customizable, while also aligning with a more generic and professional AI assistant brand.

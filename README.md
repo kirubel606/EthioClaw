@@ -47,6 +47,7 @@ When a chat message arrives, the backend follows a strict pipeline:
 9. The selected LLM generates a response.
 10. The verifier checks the response against verified facts and logs any direct contradictions.
 11. Both user and assistant messages are saved back into semantic memory.
+12. Redis is refreshed with the latest working summary and recent turns for the session.
 
 ## What The Frontend Does
 
@@ -61,7 +62,8 @@ The frontend is the user-facing client built with Next.js. It provides the chat 
 - Provide a clear-chat action for resetting the local conversation view.
 - Display a memory inspector for stored facts.
 - Allow adding and deleting memory items from the inspector UI.
-- Provide a polished Rick Sanchez themed visual experience.
+- Provide a polished cognitive AI themed visual experience with custom theme support.
+- Custom color picker in settings for full UI personalization.
 
 ### Frontend architecture
 
@@ -87,13 +89,7 @@ The main chat page is implemented in `frontend/components/ChatPage.tsx` and does
 - Shows an animated typing indicator while awaiting the backend.
 - Auto-scrolls the message list as new content arrives.
 - Opens a sidebar memory inspector when requested.
-
-The frontend also includes API routes under `frontend/app/api/`:
-
-- `POST /api/chat` forwards chat messages to the backend.
-- `GET /api/facts`, `POST /api/facts`, and `DELETE /api/facts/[id]` currently manage a local file-backed facts store.
-
-That means the current frontend contains a lightweight local memory prototype in addition to the backend’s Postgres-backed facts system. The chat UI talks to the FastAPI backend, while the local fact routes are used by the frontend memory panel.
+- The memory inspector is now directly connected to the FastAPI backend.
 
 ## Tools And Services Used
 
@@ -107,6 +103,23 @@ That means the current frontend contains a lightweight local memory prototype in
 - `Nomic Embed Text` via Ollama for vector embeddings.
 - `Pydantic` for typed schema validation.
 - `asyncpg` for database pooling and queries.
+
+### Redis Scope
+
+Redis is currently used for:
+
+- Active session summaries.
+- Recent turns per session.
+- A fallback in-process store when Redis is unavailable.
+
+Redis is not yet used for:
+
+- Response caching.
+- Embedding caching.
+- Retrieval result caching.
+- Benchmarking or telemetry.
+
+So Redis is useful here, but only as short-term working memory. It is not a general cache tier yet.
 
 ### Frontend tools
 
@@ -138,6 +151,7 @@ This project now includes a working memory-aware chatbot pipeline instead of a s
 - A hallucination verification pass runs after generation to catch direct contradictions in the final response.
 - The backend exposes clean facts-management endpoints for inspection and manual maintenance.
 - A Redis-backed working-memory cache now stores the current task summary and recent turns so the agent can answer questions like "what were we doing?"
+- Redis is currently limited to short-term working memory. It does not yet cache full responses, embeddings, or benchmark results.
 - Tool support was added for safe math evaluation, web search context injection, and on-demand DOCX, PDF, and PPTX generation.
 - Uploaded PDF, TXT, and CSV files are chunked, embedded, and stored in Qdrant so they participate in retrieval automatically.
 
@@ -145,9 +159,9 @@ This project now includes a working memory-aware chatbot pipeline instead of a s
 
 - A full chat interface is in place with message rendering, avatars, loading states, and auto-scroll behavior.
 - The user can clear the visible chat session without touching server-side memory.
-- The memory inspector shows stored facts and supports add/delete interactions.
-- The UI is themed around the Rick Sanchez persona with custom visual styling instead of a generic chat layout.
-- The frontend is wired to the backend through a configurable environment variable, so it can run locally or behind Docker.
+- The memory inspector shows stored facts and supports add/delete interactions, directly connected to the backend.
+- The UI features multiple preset themes (Toxic, Muted, Vibrant) and a Custom Mode with a full color picker.
+- Removed Rick and Morty references in favor of a sophisticated Cognitive AI Assistant persona.
 
 ### Product outcome
 
@@ -156,10 +170,10 @@ The result is a chatbot system that:
 - Remembers verified user facts.
 - Distinguishes identity facts from general facts.
 - Retrieves related context from prior turns.
-- Responds with a consistent persona.
+- Responds with a consistent, professional persona.
 - Detects and logs contradictions.
 - Verifies outputs against saved facts.
-- Presents the experience through a usable web interface.
+- Presents the experience through a usable web interface with deep customization options.
 
 ## Backend API
 
@@ -171,7 +185,7 @@ Example request:
 
 ```json
 {
-  "message": "Hello, my name is Rick and I am a 70 year old scientist."
+  "message": "Hello, my name is John and I am a software engineer."
 }
 ```
 
@@ -179,7 +193,7 @@ Example response:
 
 ```json
 {
-  "response": "Wubba lubba dub dub! Nice to meet you, Rick."
+  "response": "Hello John! How can I assist you today?"
 }
 ```
 
@@ -213,6 +227,8 @@ POSTGRES_USER=ai
 POSTGRES_PASSWORD=ai
 
 APP_ENV=development
+REDIS_URL=redis://redis:6379/0
+CACHE_MAX_TURNS=12
 ```
 
 ### Frontend
@@ -233,11 +249,9 @@ NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
 - `services/fact_verifier.py` checks assistant responses for factual contradictions.
 - `frontend/components/ChatPage.tsx` is the main client interface.
 - `frontend/components/MemoryInspector.tsx` handles the facts sidebar.
-- `frontend/app/api/chat/route.ts` forwards chat requests to the backend.
-- `frontend/app/api/facts/route.ts` and `frontend/app/api/facts/[id]/route.ts` manage the local file-backed memory prototype.
 
 ## Notes
 
-- The assistant persona is intentionally opinionated and Rick-themed.
+- The assistant persona is professional, intelligent, and grounded in a layered memory system.
 - The backend uses a fail-open verification policy: hallucinations are logged, but the response is still returned.
-- The frontend memory inspector currently uses its own file-based API routes, which are separate from the backend Postgres facts store.
+- The frontend memory inspector is now fully integrated with the backend Postgres fact store.

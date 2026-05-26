@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 
-export type Theme = 'rick' | 'morty' | 'portal'
+export type Theme = 'toxic' | 'morty' | 'portal' | 'custom'
 
 interface ThemeContextType {
   theme: Theme
@@ -12,17 +12,17 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('rick')
+  const [theme, setThemeState] = useState<Theme>('toxic')
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)
     const savedTheme = localStorage.getItem('ethioclaw-theme') as Theme | null
-    if (savedTheme && ['rick', 'morty', 'portal'].includes(savedTheme)) {
+    if (savedTheme && ['toxic', 'morty', 'portal', 'custom'].includes(savedTheme)) {
       setThemeState(savedTheme)
       applyTheme(savedTheme)
     } else {
-      applyTheme('rick')
+      applyTheme('toxic')
     }
   }, [])
 

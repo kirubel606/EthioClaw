@@ -34,7 +34,7 @@ async def init_db():
             await asyncio.sleep(delay)
 
     async with pool.acquire() as conn:
-        # Typed schema: memory_type, confidence, source, updated_at
+        # Existing user_facts table...
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS user_facts (
                 key          TEXT PRIMARY KEY,
@@ -46,17 +46,81 @@ async def init_db():
             );
         """)
 
-        # Migrate existing tables that may lack the new columns
+        # Chat Sessions Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id           TEXT PRIMARY KEY,
+                title        TEXT NOT NULL,
+                created_at   TIMESTAMPTZ DEFAULT NOW(),
+                updated_at   TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # Chat Messages Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id           SERIAL PRIMARY KEY,
+                session_id   TEXT REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                role         TEXT NOT NULL,
+                content      TEXT NOT NULL,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # Migration for existing user_facts...
         for col, definition in [
             ("memory_type", "TEXT NOT NULL DEFAULT 'general'"),
-            ("confidence",  "FLOAT NOT NULL DEFAULT 1.0"),
+            ("confidence",  "FLOAT NOT NULL DEFAULT '1.0'"),
             ("source",      "TEXT NOT NULL DEFAULT 'user'"),
             ("updated_at",  "TIMESTAMPTZ DEFAULT NOW()"),
         ]:
-            await conn.execute(f"""
-                ALTER TABLE user_facts
-                ADD COLUMN IF NOT EXISTS {col} {definition};
-            """)
+            await conn.execute(f"ALTER TABLE user_facts ADD COLUMN IF NOT EXISTS {col} {definition};")
+
+# -------------------------
+# CHAT SESSIONS & MESSAGES
+# -------------------------
+async def create_session(session_id: str, title: str):
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO chat_sessions (id, title, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                title = EXCLUDED.title,
+                updated_at = NOW();
+        """, session_id, title)
+
+async def get_sessions():
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM chat_sessions ORDER BY updated_at DESC;")
+        return [dict(row) for row in rows]
+
+async def delete_session(session_id: str):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM chat_sessions WHERE id = $1;", session_id)
+
+async def save_chat_message(session_id: str, role: str, content: str):
+    async with pool.acquire() as conn:
+        # Ensure session exists first
+        exists = await conn.fetchval("SELECT 1 FROM chat_sessions WHERE id = $1", session_id)
+        if not exists:
+            await create_session(session_id, content[:50] if role == 'user' else "New Chat")
+        
+        await conn.execute("""
+            INSERT INTO chat_messages (session_id, role, content, created_at)
+            VALUES ($1, $2, $3, NOW());
+        """, session_id, role, content)
+        
+        # Update session timestamp
+        await conn.execute("UPDATE chat_sessions SET updated_at = NOW() WHERE id = $1", session_id)
+
+async def get_session_history(session_id: str):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT role, content, created_at FROM chat_messages
+            WHERE session_id = $1
+            ORDER BY created_at ASC;
+        """, session_id)
+        return [dict(row) for row in rows]
 
 
 # -------------------------

@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, Body, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Body, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import traceback
 
 from schema import ChatRequest, ChatResponse, ChatPayload, DocumentUploadResponse, UploadedDocument
@@ -15,7 +16,7 @@ from services.conversation_cache import (
     get_summary,
     refresh_summary,
 )
-from services.agent_tools import build_tool_bundle, generate_artifact
+from services.agent_tools import build_tool_bundle, generate_artifact, GENERATED_DIR
 from services.document_service import (
     index_document,
     retrieve_document_context,
@@ -29,6 +30,10 @@ from services.fact_db import (
     get_identity_facts,
     get_fact_records,
     delete_fact,
+    save_chat_message,
+    get_sessions,
+    get_session_history,
+    delete_session,
 )
 
 from services.contradiction_detector import (
@@ -40,6 +45,8 @@ from services.fact_verifier import verify_response
 
 
 app = FastAPI()
+GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/generated", StaticFiles(directory=str(GENERATED_DIR)), name="generated")
 
 # Allow the frontend (and any other origin during development) to call the API
 app.add_middleware(
@@ -65,7 +72,7 @@ async def startup():
 # CHAT ENDPOINT
 # -------------------------
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: dict = Body(...)):
+async def chat(http_request: Request, request: dict = Body(...)):
     """Accept both the new ChatPayload format and the legacy simple format.
     The function extracts a unified `request_message` string for downstream processing.
     """
@@ -162,7 +169,7 @@ async def chat(request: dict = Body(...)):
         tool_bundle = await build_tool_bundle(request_message)
 
         # ── STEP 6: Retrieve ranked semantic memory from Qdrant ──────────────
-        context = await retrieve_context(request_message, limit=8)
+        context = await retrieve_context(request_message, session_id=session_id, limit=8)
         document_context = await retrieve_document_context(
             request_message,
             session_id=session_id,
@@ -199,11 +206,14 @@ async def chat(request: dict = Body(...)):
         if tool_bundle.artifact_kind:
             artifact_title = tool_bundle.artifact_title or "generated-content"
             artifact_path = generate_artifact(tool_bundle.artifact_kind, artifact_title, assistant_text)
-            ai_response = f"{assistant_text}\n\nGenerated file: {artifact_path.as_posix()}"
+            artifact_url = f"{str(http_request.base_url).rstrip('/')}/generated/{artifact_path.name}"
+            ai_response = f"{assistant_text}\n\nGenerated file: [Download the presentation]({artifact_url})"
 
-        # ── STEP 10: Save conversation to Qdrant and short-term cache ────────
-        await save_message("user",      request_message)
-        await save_message("assistant", ai_response)
+        # ── STEP 10: Save conversation to Qdrant, short-term cache and Postgres history ────────
+        await save_message("user",      request_message, session_id=session_id)
+        await save_message("assistant", ai_response,     session_id=session_id)
+        await save_chat_message(session_id, "user", request_message)
+        await save_chat_message(session_id, "assistant", ai_response)
         await append_turn(session_id, "user", request_message)
         await append_turn(session_id, "assistant", ai_response)
         await refresh_summary(session_id, request_message, ai_response)
@@ -241,6 +251,7 @@ async def upload_documents(
         indexed_count = sum(item.chunks_indexed for item in indexed_files)
         confirmation_text = f"Indexed uploaded files: {uploaded_names}"
         summary_text = f"Indexed {len(indexed_files)} uploaded files with {indexed_count} document chunks."
+        await save_chat_message(session_id, "system", confirmation_text)
         await append_turn(session_id, "system", confirmation_text)
         await refresh_summary(session_id, summary_text, confirmation_text)
 
@@ -290,4 +301,34 @@ async def delete_fact_endpoint(key: str):
         return {"status": "success"}
     except Exception as e:
         print("[ERROR] Failed to delete fact:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+# -------------------------
+# SESSION MANAGEMENT ENDPOINTS
+# -------------------------
+@app.get("/sessions")
+async def get_all_sessions_endpoint():
+    try:
+        sessions = await get_sessions()
+        return {"sessions": sessions}
+    except Exception as e:
+        print("[ERROR] Failed to get sessions:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/sessions/{session_id}/history")
+async def get_session_history_endpoint(session_id: str):
+    try:
+        history = await get_session_history(session_id)
+        return {"history": history}
+    except Exception as e:
+        print("[ERROR] Failed to get session history:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/sessions/{session_id}")
+async def delete_session_endpoint(session_id: str):
+    try:
+        await delete_session(session_id)
+        return {"status": "success"}
+    except Exception as e:
+        print("[ERROR] Failed to delete session:", repr(e))
         raise HTTPException(status_code=500, detail=str(e))

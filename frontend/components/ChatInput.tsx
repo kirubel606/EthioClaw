@@ -67,7 +67,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
     return (
       <form
         onSubmit={handleSubmit}
-        className="border-t-2 border-cyan-400 bg-gradient-to-r from-blue-950 to-purple-950 p-6 shadow-lg"
+        className="border-t-2 border-border bg-card p-6 shadow-lg"
       >
         <div className="flex gap-3">
           <div className="flex-1 relative">
@@ -76,11 +76,11 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask Rick anything... or upload a PDF, TXT, or CSV"
+              placeholder="Ask anything... or upload a PDF, TXT, or CSV"
               disabled={isLoading || isUploading}
-              className="w-full bg-gray-900 border-2 border-cyan-400 rounded-lg px-4 py-3 text-green-400 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:border-transparent transition-all duration-200 hover:border-green-400"
+              className="w-full bg-background border-2 border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 hover:border-primary/50"
             />
-            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-cyan-400 text-xs">
+            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-primary text-xs">
               ▶
             </div>
           </div>
@@ -98,7 +98,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading || isUploading}
-            className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-bold px-4 py-3 rounded-lg border-2 border-cyan-300 transition-all duration-200 hover:shadow-lg hover:shadow-cyan-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-accent hover:bg-accent/90 text-accent-foreground font-bold px-4 py-3 rounded-lg border-2 border-border transition-all duration-200 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isUploading ? (
               <span className="flex items-center gap-2">
@@ -113,7 +113,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
           <Button
             type="submit"
             disabled={isLoading || isUploading || !input.trim()}
-            className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold px-6 py-3 rounded-lg border-2 border-cyan-300 transition-all duration-200 hover:shadow-lg hover:shadow-cyan-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold px-6 py-3 rounded-lg border-2 border-border transition-all duration-200 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <span className="flex items-center gap-2">
@@ -126,12 +126,15 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
           </Button>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground font-medium">
           <p className="mr-3">💬 Press Enter or click Send</p>
-          <p className="text-green-400 mr-3">█ Connected</p>
+          <p className="text-primary mr-3 flex items-center gap-1">
+            <span className="size-2 rounded-full bg-primary animate-pulse" />
+            Connected
+          </p>
           {selectedFiles.length > 0 && (
-            <p className="text-cyan-300">
-              Selected: {selectedFiles.join(', ')}
+            <p className="text-accent flex items-center gap-1">
+              📎 Selected: {selectedFiles.join(', ')}
             </p>
           )}
         </div>
