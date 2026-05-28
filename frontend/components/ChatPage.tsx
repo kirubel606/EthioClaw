@@ -87,6 +87,26 @@ export default function ChatPage() {
     }
   }
 
+  const pollNotifications = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/trading/notifications/default`)
+      if (res.ok) {
+        const data = await res.json()
+        const notifications = data.notifications || []
+        notifications.forEach((notif: any) => {
+          const isWin = notif.outcome === 'WIN'
+          toast({
+            title: isWin ? 'Trade Target Hit! 📈' : 'Stop Loss Triggered 📉',
+            description: `${notif.direction} ${notif.pair} closed for a ${isWin ? 'profit' : 'loss'} of $${Math.abs(notif.pnl)}.`,
+            variant: isWin ? 'default' : 'destructive',
+          })
+        })
+      }
+    } catch (error) {
+      console.error('[ChatPage] Notification poll failed:', error)
+    }
+  }
+
   const handleSessionSelect = async (id: string, forceMode?: AppMode) => {
     // Detect mode from session ID prefix OR existing trading config
     const isTradingPrefix = id.startsWith('trading-') || id.startsWith('trading:')
@@ -344,14 +364,28 @@ export default function ChatPage() {
     void handleSessionSelect(nextSessionId, nextMode)
   }
 
-  // Scroll to bottom when new messages arrive or loading state changes
+  // Ensure mode state stays in sync with the current session ID
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isLoading])
+    if (sessionId) {
+      const isTradingPrefix = sessionId.startsWith('trading-') || sessionId.startsWith('trading:')
+      const hasTradingConfig = !!loadTradingSessionConfigs()[sessionId]
+      const shouldBeTrading = isTradingPrefix || hasTradingConfig
+      
+      if (shouldBeTrading && mode !== 'trading') {
+        setMode('trading')
+      } else if (!shouldBeTrading && mode !== 'agent') {
+        setMode('agent')
+      }
+    }
+  }, [sessionId])
 
   // Load memories on mount
   useEffect(() => {
     loadMemories()
+    
+    // Start notification poller
+    const poller = setInterval(pollNotifications, 30000)
+    return () => clearInterval(poller)
   }, [])
 
   useEffect(() => {

@@ -635,6 +635,12 @@ async def get_closed_trades_notifications(user_id: str) -> list[dict]:
         )
         return [dict(row) for row in rows]
 async def get_recent_trades_text(user_id: str, limit: int = 5) -> str:
+    if fact_db.pool is None:
+        raise RuntimeError("Postgres pool is not initialized")
+
+    async with fact_db.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
             SELECT id, signal_id, status, outcome, pnl, opened_at, closed_at
             FROM trading_trades
             WHERE user_id = $1

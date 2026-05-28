@@ -347,6 +347,16 @@ async def get_trading_dashboard_endpoint(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/trading/notifications/{user_id}")
+async def get_trading_notifications_endpoint(user_id: str):
+    try:
+        notifications = await get_closed_trades_notifications(user_id)
+        return {"notifications": notifications}
+    except Exception as e:
+        print("[ERROR] Failed to get notifications:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/trading/signals/generate", response_model=TradingSignalResponse)
 async def generate_trading_signal_endpoint(request: TradingSignalRequest):
     try:
