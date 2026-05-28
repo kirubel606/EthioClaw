@@ -9,12 +9,15 @@ interface ChatMessageProps {
   role: 'user' | 'assistant' | 'system'
   content: string
   onQuote?: (text: string) => void
+  mode?: 'agent' | 'trading'
 }
 
-export default function ChatMessage({ role, content, onQuote }: ChatMessageProps) {
+export default function ChatMessage({ role, content, onQuote, mode = 'agent' }: ChatMessageProps) {
   const isUser = role === 'user'
   const isAI = role === 'assistant'
   const isSystem = role === 'system'
+  const isTrading = mode === 'trading'
+  
   const [selection, setSelection] = useState('')
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
 
@@ -57,8 +60,8 @@ export default function ChatMessage({ role, content, onQuote }: ChatMessageProps
   if (isSystem) {
     return (
       <div className="flex justify-center my-4 animate-in fade-in slide-in-from-top-2 duration-500">
-        <div className="bg-muted/30 border border-border/50 rounded-full px-4 py-1.5 text-[10px] text-muted-foreground uppercase tracking-widest font-bold flex items-center gap-2">
-          <span className="size-1.5 rounded-full bg-primary/50 animate-pulse" />
+        <div className={`bg-muted/30 border border-border/50 rounded-full px-4 py-1.5 text-[10px] uppercase tracking-widest font-bold flex items-center gap-2 ${isTrading ? 'text-amber-500' : 'text-muted-foreground'}`}>
+          <span className={`size-1.5 rounded-full animate-pulse ${isTrading ? 'bg-amber-500' : 'bg-primary/50'}`} />
           {content}
         </div>
       </div>
@@ -73,23 +76,37 @@ export default function ChatMessage({ role, content, onQuote }: ChatMessageProps
     >
       {isAI && (
         <div className="flex-shrink-0">
-          <Avatar className="size-12 border-2 border-primary">
-            <AvatarFallback className="bg-muted text-primary font-bold">AI</AvatarFallback>
+          <Avatar className={`size-12 border-2 ${isTrading ? 'border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.3)]' : 'border-primary'}`}>
+            <AvatarFallback className={`${isTrading ? 'bg-black text-amber-500' : 'bg-muted text-primary'} font-black uppercase text-xs`}>
+              {isTrading ? 'TD' : 'AI'}
+            </AvatarFallback>
           </Avatar>
         </div>
       )}
-      <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
-        {isAI && <p className="text-primary text-xs mb-2 font-semibold">AI Assistant</p>}
+      <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} ${isTrading && isAI ? 'flex-1' : ''}`}>
+        {isAI && (
+          <p className={`${isTrading ? 'text-amber-500 font-black tracking-widest uppercase text-[10px]' : 'text-primary font-semibold text-xs'} mb-2`}>
+            {isTrading ? 'Trading Desk :: Analysis' : 'AI Assistant'}
+          </p>
+        )}
 
         <div
-          className={`message-bubble ${isAI ? 'message-bubble-ai' : 'message-bubble-user'}`}
+          className={`message-bubble ${
+            isAI 
+              ? (isTrading ? 'message-bubble-trading !max-w-none w-full border-l-4 border-l-amber-500' : 'message-bubble-ai') 
+              : 'message-bubble-user'
+          }`}
         >
           <RichText content={content} />
         </div>
       </div>
       {!isAI && (
         <div className="flex-shrink-0">
-          <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center border-2 border-border text-primary-foreground font-bold text-lg">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 font-bold text-lg ${
+            isTrading 
+              ? 'bg-black border-amber-500/50 text-amber-500' 
+              : 'bg-primary border-border text-primary-foreground'
+          }`}>
             U
           </div>
         </div>

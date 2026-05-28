@@ -1,5 +1,6 @@
 import asyncio
 import os
+import json
 import asyncpg
 
 DB_CONFIG = {
@@ -63,9 +64,11 @@ async def init_db():
                 session_id   TEXT REFERENCES chat_sessions(id) ON DELETE CASCADE,
                 role         TEXT NOT NULL,
                 content      TEXT NOT NULL,
+                metadata     JSONB,
                 created_at   TIMESTAMPTZ DEFAULT NOW()
             );
         """)
+        await conn.execute("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS metadata JSONB;")
 
         # Migration for existing user_facts...
         for col, definition in [
@@ -98,7 +101,7 @@ async def delete_session(session_id: str):
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM chat_sessions WHERE id = $1;", session_id)
 
-async def save_chat_message(session_id: str, role: str, content: str):
+async def save_chat_message(session_id: str, role: str, content: str, metadata: dict | None = None):
     async with pool.acquire() as conn:
         # Ensure session exists first
         exists = await conn.fetchval("SELECT 1 FROM chat_sessions WHERE id = $1", session_id)
@@ -106,9 +109,9 @@ async def save_chat_message(session_id: str, role: str, content: str):
             await create_session(session_id, content[:50] if role == 'user' else "New Chat")
         
         await conn.execute("""
-            INSERT INTO chat_messages (session_id, role, content, created_at)
-            VALUES ($1, $2, $3, NOW());
-        """, session_id, role, content)
+            INSERT INTO chat_messages (session_id, role, content, metadata, created_at)
+            VALUES ($1, $2, $3, $4, NOW());
+        """, session_id, role, content, json.dumps(metadata) if metadata else None)
         
         # Update session timestamp
         await conn.execute("UPDATE chat_sessions SET updated_at = NOW() WHERE id = $1", session_id)
@@ -116,11 +119,21 @@ async def save_chat_message(session_id: str, role: str, content: str):
 async def get_session_history(session_id: str):
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT role, content, created_at FROM chat_messages
+            SELECT role, content, metadata, created_at FROM chat_messages
             WHERE session_id = $1
             ORDER BY created_at ASC;
         """, session_id)
-        return [dict(row) for row in rows]
+        
+        history = []
+        for row in rows:
+            item = dict(row)
+            if item.get("metadata"):
+                try:
+                    item["metadata"] = json.loads(item["metadata"])
+                except:
+                    pass
+            history.append(item)
+        return history
 
 
 # -------------------------

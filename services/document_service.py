@@ -18,6 +18,10 @@ from services.memory_service import create_embedding, create_embedding_async
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
 DOCUMENT_COLLECTION_NAME = os.getenv("DOCUMENT_COLLECTION_NAME", "document_knowledge")
+TRADING_STRATEGY_COLLECTION_NAME = os.getenv(
+    "TRADING_STRATEGY_COLLECTION_NAME",
+    "trading_strategy_knowledge",
+)
 DOCUMENT_SCORE_THRESHOLD = float(os.getenv("DOCUMENT_SCORE_THRESHOLD", "0.45"))
 DOCUMENT_CHUNK_SIZE = int(os.getenv("DOCUMENT_CHUNK_SIZE", "1400"))
 DOCUMENT_CHUNK_OVERLAP = int(os.getenv("DOCUMENT_CHUNK_OVERLAP", "160"))
@@ -32,19 +36,19 @@ class UploadedDocumentResult(BaseModel):
     characters: int
 
 
-def setup_document_collection():
+def setup_document_collection(collection_name: str = DOCUMENT_COLLECTION_NAME):
     collections = client.get_collections().collections
     names = [c.name for c in collections]
 
-    if DOCUMENT_COLLECTION_NAME not in names:
+    if collection_name not in names:
         client.create_collection(
-            collection_name=DOCUMENT_COLLECTION_NAME,
+            collection_name=collection_name,
             vectors_config=VectorParams(size=768, distance=Distance.COSINE),
         )
 
 
-async def setup_document_collection_async():
-    await run_in_threadpool(setup_document_collection)
+async def setup_document_collection_async(collection_name: str = DOCUMENT_COLLECTION_NAME):
+    await run_in_threadpool(setup_document_collection, collection_name)
 
 
 def _normalize_text(text: str) -> str:
@@ -126,6 +130,8 @@ async def index_document(
     session_id: str,
     filename: str,
     raw_bytes: bytes,
+    collection_name: str = DOCUMENT_COLLECTION_NAME,
+    source_type: str = "document",
 ) -> UploadedDocumentResult:
     text, file_type = extract_document_text(filename, raw_bytes)
     normalized = _normalize_text(text)
@@ -147,7 +153,7 @@ async def index_document(
                 id=str(uuid.uuid4()),
                 vector=vector,
                 payload={
-                    "source_type": "document",
+                    "source_type": source_type,
                     "session_id": session_id,
                     "filename": filename,
                     "file_type": file_type,
@@ -158,7 +164,7 @@ async def index_document(
         )
 
     if points:
-        client.upsert(collection_name=DOCUMENT_COLLECTION_NAME, points=points)
+        client.upsert(collection_name=collection_name, points=points)
 
     return UploadedDocumentResult(
         filename=filename,
@@ -182,6 +188,8 @@ def retrieve_document_context_sync(
     query: str,
     session_id: str | None = None,
     limit: int = 6,
+    collection_name: str = DOCUMENT_COLLECTION_NAME,
+    source_type: str = "document",
 ) -> str:
     vector = create_embedding(query)
 
@@ -189,13 +197,13 @@ def retrieve_document_context_sync(
     if session_id:
         query_filter = Filter(
             must=[
-                FieldCondition(key="source_type", match=MatchValue(value="document")),
+                FieldCondition(key="source_type", match=MatchValue(value=source_type)),
                 FieldCondition(key="session_id", match=MatchValue(value=session_id)),
             ]
         )
 
     points = client.query_points(
-        collection_name=DOCUMENT_COLLECTION_NAME,
+        collection_name=collection_name,
         query=vector,
         limit=limit,
         query_filter=query_filter,
@@ -205,7 +213,7 @@ def retrieve_document_context_sync(
 
     if not filtered and session_id:
         points = client.query_points(
-            collection_name=DOCUMENT_COLLECTION_NAME,
+            collection_name=collection_name,
             query=vector,
             limit=limit,
         ).points
@@ -222,5 +230,14 @@ async def retrieve_document_context(
     query: str,
     session_id: str | None = None,
     limit: int = 6,
+    collection_name: str = DOCUMENT_COLLECTION_NAME,
+    source_type: str = "document",
 ) -> str:
-    return await run_in_threadpool(retrieve_document_context_sync, query, session_id, limit)
+    return await run_in_threadpool(
+        retrieve_document_context_sync,
+        query,
+        session_id,
+        limit,
+        collection_name,
+        source_type,
+    )

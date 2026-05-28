@@ -2,8 +2,23 @@ from fastapi import FastAPI, HTTPException, Body, UploadFile, File, Form, Reques
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import traceback
+import asyncio
 
-from schema import ChatRequest, ChatResponse, ChatPayload, DocumentUploadResponse, UploadedDocument
+from schema import (
+    ChatRequest,
+    ChatResponse,
+    ChatPayload,
+    DocumentUploadResponse,
+    UploadedDocument,
+    TradingProfileRequest,
+    TradingProfileResponse,
+    TradingSignalRequest,
+    TradingSignalResponse,
+    TradingTradeActionRequest,
+    TradingTradeActionResponse,
+    TradingTradeCloseRequest,
+    TradingDashboardResponse,
+)
 
 from services.memory_service   import retrieve_context, save_message, setup_collection_async
 from services.memory_extractor import extract_facts
@@ -21,6 +36,7 @@ from services.document_service import (
     index_document,
     retrieve_document_context,
     setup_document_collection_async,
+    TRADING_STRATEGY_COLLECTION_NAME,
 )
 
 from services.fact_db import (
@@ -42,6 +58,18 @@ from services.contradiction_detector import (
 )
 
 from services.fact_verifier import verify_response
+from services.trading_service import (
+    init_trading_db,
+    save_trading_profile,
+    get_trading_profile,
+    generate_trading_signal,
+    get_trading_signal,
+    save_trade_from_signal,
+    reject_signal,
+    close_trade,
+    get_trading_dashboard,
+    monitor_open_trades,
+)
 
 
 app = FastAPI()
@@ -66,6 +94,23 @@ async def startup():
     await init_db()
     await setup_collection_async()
     await setup_document_collection_async()
+    await setup_document_collection_async(TRADING_STRATEGY_COLLECTION_NAME)
+    await init_trading_db()
+
+    # Start the background trade monitoring worker
+    asyncio.create_task(trade_monitor_loop())
+
+
+async def trade_monitor_loop():
+    print("[SYSTEM] Starting trade monitor background worker...")
+    while True:
+        try:
+            await monitor_open_trades()
+        except Exception as e:
+            print(f"[ERROR] Trade monitor loop failed: {e}")
+
+        # Wait 60 seconds before next check
+        await asyncio.sleep(60)
 
 
 # -------------------------
@@ -262,6 +307,149 @@ async def upload_documents(
         )
     except Exception as e:
         print("[ERROR] Failed to upload documents:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -------------------------
+# TRADING MODE ENDPOINTS
+# -------------------------
+@app.post("/trading/profile", response_model=TradingProfileResponse)
+async def save_trading_profile_endpoint(profile: TradingProfileRequest):
+    try:
+        saved = await save_trading_profile(profile)
+        return TradingProfileResponse(**saved)
+    except Exception as e:
+        print("[ERROR] Failed to save trading profile:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/trading/profile/{user_id}", response_model=TradingProfileResponse)
+async def get_trading_profile_endpoint(user_id: str):
+    try:
+        profile = await get_trading_profile(user_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Trading profile not found")
+        return TradingProfileResponse(**profile)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("[ERROR] Failed to get trading profile:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/trading/dashboard/{user_id}", response_model=TradingDashboardResponse)
+async def get_trading_dashboard_endpoint(user_id: str):
+    try:
+        dashboard = await get_trading_dashboard(user_id)
+        return TradingDashboardResponse(**dashboard)
+    except Exception as e:
+        print("[ERROR] Failed to get trading dashboard:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/trading/signals/generate", response_model=TradingSignalResponse)
+async def generate_trading_signal_endpoint(request: TradingSignalRequest):
+    try:
+        result = await generate_trading_signal(
+            user_id=request.user_id,
+            session_id=request.session_id,
+            pair=request.pair,
+            timeframe=request.timeframe,
+            balance=request.balance,
+            message=request.message,
+        )
+        return TradingSignalResponse(**result)
+    except Exception as e:
+        print("[ERROR] Failed to generate trading signal:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/trading/trades/take", response_model=TradingTradeActionResponse)
+async def take_trading_trade_endpoint(action: TradingTradeActionRequest):
+    try:
+        signal = await get_trading_signal(action.signal_id)
+        if signal is None:
+            raise HTTPException(status_code=404, detail="Signal not found")
+        if signal.get("direction") == "HOLD" or not signal.get("actionable", True):
+            raise HTTPException(status_code=400, detail="Non-actionable signals cannot be taken as trades")
+
+        trade = await save_trade_from_signal(signal, action.user_id)
+        return TradingTradeActionResponse(
+            trade_id=trade["id"],
+            signal_id=action.signal_id,
+            status=trade["status"],
+            message="Trade opened from signal",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("[ERROR] Failed to take trading trade:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/trading/trades/reject", response_model=TradingTradeActionResponse)
+async def reject_trading_trade_endpoint(action: TradingTradeActionRequest):
+    try:
+        signal = await reject_signal(action.signal_id)
+        return TradingTradeActionResponse(
+            trade_id="",
+            signal_id=action.signal_id,
+            status=signal.get("status", "REJECTED"),
+            message="Signal rejected",
+        )
+    except Exception as e:
+        print("[ERROR] Failed to reject trading signal:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/trading/trades/{trade_id}/close")
+async def close_trading_trade_endpoint(trade_id: str, request: TradingTradeCloseRequest):
+    try:
+        trade = await close_trade(trade_id, request.outcome, request.pnl)
+        return {"status": "success", "trade": trade}
+    except Exception as e:
+        print("[ERROR] Failed to close trading trade:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/trading/strategies/upload", response_model=DocumentUploadResponse)
+async def upload_trading_strategies(
+    session_id: str = Form("default"),
+    files: list[UploadFile] = File(...),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    indexed_files: list[UploadedDocument] = []
+
+    try:
+        trading_session_id = f"trading:{session_id}"
+        for upload in files:
+            raw_bytes = await upload.read()
+            result = await index_document(
+                trading_session_id,
+                upload.filename,
+                raw_bytes,
+                collection_name=TRADING_STRATEGY_COLLECTION_NAME,
+                source_type="trading_strategy",
+            )
+            indexed_files.append(UploadedDocument(**result.model_dump()))
+
+        uploaded_names = ", ".join(item.filename for item in indexed_files) or "files"
+        indexed_count = sum(item.chunks_indexed for item in indexed_files)
+        confirmation_text = f"Indexed trading strategy files: {uploaded_names}"
+        summary_text = f"Indexed {len(indexed_files)} trading strategy files with {indexed_count} document chunks."
+        await save_chat_message(trading_session_id, "system", confirmation_text)
+        await append_turn(trading_session_id, "system", confirmation_text)
+        await refresh_summary(trading_session_id, summary_text, confirmation_text)
+
+        return DocumentUploadResponse(
+            status="success",
+            session_id=session_id,
+            files=indexed_files,
+        )
+    except Exception as e:
+        print("[ERROR] Failed to upload trading strategies:", repr(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

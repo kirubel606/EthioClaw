@@ -16,6 +16,7 @@ interface ChatHistoryProps {
   onNewChat: () => void
   onDeleteSession: (sessionId: string) => void
   backendUrl: string
+  mode: 'agent' | 'trading'
 }
 
 export default function ChatHistory({
@@ -24,6 +25,7 @@ export default function ChatHistory({
   onNewChat,
   onDeleteSession,
   backendUrl,
+  mode,
 }: ChatHistoryProps) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -34,7 +36,13 @@ export default function ChatHistory({
       const res = await fetch(`${backendUrl}/sessions`)
       if (res.ok) {
         const data = await res.json()
-        setSessions(data.sessions || [])
+        const allSessions = data.sessions || []
+        // Filter sessions by mode
+        const filtered = allSessions.filter((s: Session) => {
+          const isTradingSession = s.id.startsWith('trading-') || s.id.startsWith('trading:')
+          return mode === 'trading' ? isTradingSession : !isTradingSession
+        })
+        setSessions(filtered)
       }
     } catch (error) {
       console.error('[ChatHistory] Failed to load sessions:', error)
@@ -45,10 +53,7 @@ export default function ChatHistory({
 
   useEffect(() => {
     loadSessions()
-    // Refresh sessions periodically or when backend might have updated
-    const interval = setInterval(loadSessions, 10000)
-    return () => clearInterval(interval)
-  }, [])
+  }, [mode]) // Reload when mode changes
 
   return (
     <div className="h-full flex flex-col bg-card border-l border-border/30">

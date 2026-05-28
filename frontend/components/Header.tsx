@@ -2,7 +2,9 @@
 
 import Image from 'next/image'
 import { APP_NAME } from '@/lib/env'
-import { MessageSquare, Library, Settings as SettingsIcon, Trash2 } from 'lucide-react'
+import { MessageSquare, Library, Settings as SettingsIcon, Trash2, BarChart3, BrainCircuit } from 'lucide-react'
+
+type AppMode = 'agent' | 'trading'
 
 interface HeaderProps {
   onMemoryToggle?: () => void
@@ -11,6 +13,8 @@ interface HeaderProps {
   historyOpen?: boolean
   onSettingsToggle?: () => void
   onClearChat?: () => void
+  mode?: AppMode
+  onModeToggle?: () => void
 }
 
 export default function Header({
@@ -20,6 +24,8 @@ export default function Header({
   historyOpen,
   onSettingsToggle,
   onClearChat,
+  mode = 'agent',
+  onModeToggle,
 }: HeaderProps) {
   return (
     <header className="bg-card border-b-2 border-border py-4 px-6 shadow-lg z-20">
@@ -35,6 +41,32 @@ export default function Header({
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Mode Switcher Tabs */}
+          <div className="flex bg-background/50 p-1 rounded-xl border-2 border-border/50 gap-1 mr-4">
+            <button
+              onClick={() => mode !== 'agent' && onModeToggle?.()}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 font-black text-[10px] uppercase tracking-widest ${
+                mode === 'agent'
+                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30 border border-transparent'
+              }`}
+            >
+              <BrainCircuit className={`size-3.5 ${mode === 'agent' ? 'animate-pulse' : ''}`} />
+              Agent Mode
+            </button>
+            <button
+              onClick={() => mode !== 'trading' && onModeToggle?.()}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 font-black text-[10px] uppercase tracking-widest ${
+                mode === 'trading'
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/30 border border-transparent'
+              }`}
+            >
+              <BarChart3 className={`size-3.5 ${mode === 'trading' ? 'animate-pulse' : ''}`} />
+              Trading Desk
+            </button>
+          </div>
+
           <button
             onClick={onHistoryToggle}
             className={`hidden lg:flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all duration-200 font-bold text-xs uppercase tracking-wider ${

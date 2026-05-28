@@ -6,15 +6,19 @@ export interface ChatInputRef {
   clearFiles: () => void
 }
 
+type AppMode = 'agent' | 'trading'
+
 interface ChatInputProps {
   onSubmit: (message: string) => void | Promise<void>
   onFilesSelected?: (files: File[]) => void | Promise<void>
+  onStrategyFilesSelected?: (files: File[]) => void | Promise<void>
   isLoading?: boolean
   isUploading?: boolean
+  mode?: AppMode
 }
 
 export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
-  ({ onSubmit, onFilesSelected, isLoading, isUploading }, ref) => {
+  ({ onSubmit, onFilesSelected, onStrategyFilesSelected, isLoading, isUploading, mode = 'agent' }, ref) => {
     const [input, setInput] = useState('')
     const [selectedFiles, setSelectedFiles] = useState<string[]>([])
     const inputRef = useRef<HTMLInputElement>(null)
@@ -54,7 +58,11 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
       setSelectedFiles(files.map((file) => file.name))
 
       try {
-        await onFilesSelected?.(files)
+        if (mode === 'trading') {
+          await onStrategyFilesSelected?.(files)
+        } else {
+          await onFilesSelected?.(files)
+        }
       } catch (error) {
         console.error('[v0] Failed to hand files to parent:', error)
       } finally {
@@ -76,7 +84,11 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask anything... or upload a PDF, TXT, or CSV"
+              placeholder={
+                mode === 'trading'
+                  ? 'Input instrument, timeframe, or specific analysis request...'
+                  : 'Ask anything... or upload a PDF, TXT, or CSV'
+              }
               disabled={isLoading || isUploading}
               className="w-full bg-background border-2 border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 hover:border-primary/50"
             />
@@ -98,13 +110,19 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading || isUploading}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground font-bold px-4 py-3 rounded-lg border-2 border-border transition-all duration-200 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`font-bold px-4 py-3 rounded-lg border-2 transition-all duration-200 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${
+              mode === 'trading'
+                ? 'bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 border-amber-400/40'
+                : 'bg-accent hover:bg-accent/90 text-accent-foreground border-border'
+            }`}
           >
             {isUploading ? (
               <span className="flex items-center gap-2">
                 <span className="animate-spin">⟳</span>
-                Uploading...
+                {mode === 'trading' ? 'Uploading Strategy...' : 'Uploading...'}
               </span>
+            ) : mode === 'trading' ? (
+              'Upload Strategy'
             ) : (
               'Upload'
             )}
@@ -117,24 +135,29 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
           >
             {isLoading ? (
               <span className="flex items-center gap-2">
-                <span className="animate-spin">⟳</span>
-                Thinking...
+                <span className="animate-spin text-lg">⟳</span>
+                {mode === 'trading' ? 'Scanning...' : 'Thinking...'}
               </span>
             ) : (
-              'Send'
+              mode === 'trading' ? 'Get Signal' : 'Send'
             )}
           </Button>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground font-medium">
-          <p className="mr-3">💬 Press Enter or click Send</p>
+        <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+          <p className="mr-3">Press Enter or click {mode === 'trading' ? 'Get Signal' : 'Send'}</p>
           <p className="text-primary mr-3 flex items-center gap-1">
             <span className="size-2 rounded-full bg-primary animate-pulse" />
-            Connected
+            System Online
           </p>
-          {selectedFiles.length > 0 && (
+          {mode === 'agent' && selectedFiles.length > 0 && (
             <p className="text-accent flex items-center gap-1">
               📎 Selected: {selectedFiles.join(', ')}
+            </p>
+          )}
+          {mode === 'trading' && (
+            <p className="text-amber-400 flex items-center gap-1">
+              📈 Deterministic Engine :: Strategy RAG Enabled
             </p>
           )}
         </div>
