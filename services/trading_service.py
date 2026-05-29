@@ -196,10 +196,32 @@ async def init_trading_db() -> None:
         raise RuntimeError("Postgres pool is not initialized")
 
     async with fact_db.pool.acquire() as conn:
+        # Migration for trading_profiles
+        # 1. Add session_id if missing
+        await conn.execute("ALTER TABLE trading_profiles ADD COLUMN IF NOT EXISTS session_id TEXT;")
+        # 2. If user_id is the primary key and session_id is not, we need to swap.
+        # This is a bit complex in SQL, so we'll check the current PK.
+        pk_info = await conn.fetchrow("""
+            SELECT a.attname
+            FROM   pg_index i
+            JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+            WHERE  i.indrelid = 'trading_profiles'::regclass
+            AND    i.indisprimary;
+        """)
+        
+        if pk_info and pk_info['attname'] == 'user_id':
+            print("[DB] Migrating trading_profiles PRIMARY KEY from user_id to session_id")
+            # Set session_id to user_id for existing records if it's null
+            await conn.execute("UPDATE trading_profiles SET session_id = user_id WHERE session_id IS NULL;")
+            await conn.execute("ALTER TABLE trading_profiles ALTER COLUMN session_id SET NOT NULL;")
+            await conn.execute("ALTER TABLE trading_profiles DROP CONSTRAINT trading_profiles_pkey;")
+            await conn.execute("ALTER TABLE trading_profiles ADD PRIMARY KEY (session_id);")
+
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS trading_profiles (
-                user_id             TEXT PRIMARY KEY,
+                session_id          TEXT PRIMARY KEY,
+                user_id             TEXT NOT NULL,
                 balance             DOUBLE PRECISION NOT NULL DEFAULT 1000,
                 risk_percent        DOUBLE PRECISION NOT NULL DEFAULT 3,
                 preferred_pair      TEXT NOT NULL DEFAULT 'XAUUSD',
@@ -241,11 +263,16 @@ async def init_trading_db() -> None:
         )
         await conn.execute("ALTER TABLE trading_signals ADD COLUMN IF NOT EXISTS balance DOUBLE PRECISION NOT NULL DEFAULT 0;")
 
+        # Migration for trading_trades
+        await conn.execute("ALTER TABLE trading_trades ADD COLUMN IF NOT EXISTS session_id TEXT;")
+        await conn.execute("UPDATE trading_trades SET session_id = 'default' WHERE session_id IS NULL;")
+
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS trading_trades (
                 id             TEXT PRIMARY KEY,
                 user_id        TEXT NOT NULL,
+                session_id     TEXT NOT NULL,
                 signal_id      TEXT NOT NULL,
                 status         TEXT NOT NULL DEFAULT 'OPEN',
                 entry          DOUBLE PRECISION,
@@ -262,19 +289,19 @@ async def init_trading_db() -> None:
         )
 
 
-async def get_trading_profile(user_id: str) -> dict | None:
+async def get_trading_profile(session_id: str) -> dict | None:
     if fact_db.pool is None:
         raise RuntimeError("Postgres pool is not initialized")
 
     async with fact_db.pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT user_id, balance, risk_percent, preferred_pair, preferred_timeframe,
+            SELECT session_id, user_id, balance, risk_percent, preferred_pair, preferred_timeframe,
                    style, max_daily_loss, max_open_trades, preferred_sessions, updated_at
             FROM trading_profiles
-            WHERE user_id = $1
+            WHERE session_id = $1
             """,
-            user_id,
+            session_id,
         )
         return dict(row) if row else None
 
@@ -283,15 +310,18 @@ async def save_trading_profile(payload) -> dict:
     if fact_db.pool is None:
         raise RuntimeError("Postgres pool is not initialized")
 
+    session_id = getattr(payload, 'session_id', 'default')
+    user_id = getattr(payload, 'user_id', 'default')
+
     async with fact_db.pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             INSERT INTO trading_profiles (
-                user_id, balance, risk_percent, preferred_pair, preferred_timeframe,
+                session_id, user_id, balance, risk_percent, preferred_pair, preferred_timeframe,
                 style, max_daily_loss, max_open_trades, preferred_sessions, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-            ON CONFLICT (user_id) DO UPDATE SET
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+            ON CONFLICT (session_id) DO UPDATE SET
                 balance = EXCLUDED.balance,
                 risk_percent = EXCLUDED.risk_percent,
                 preferred_pair = EXCLUDED.preferred_pair,
@@ -301,10 +331,11 @@ async def save_trading_profile(payload) -> dict:
                 max_open_trades = EXCLUDED.max_open_trades,
                 preferred_sessions = EXCLUDED.preferred_sessions,
                 updated_at = NOW()
-            RETURNING user_id, balance, risk_percent, preferred_pair, preferred_timeframe,
+            RETURNING session_id, user_id, balance, risk_percent, preferred_pair, preferred_timeframe,
                       style, max_daily_loss, max_open_trades, preferred_sessions, updated_at
             """,
-            payload.user_id,
+            session_id,
+            user_id,
             payload.balance,
             payload.risk_percent,
             payload.preferred_pair,
@@ -317,16 +348,37 @@ async def save_trading_profile(payload) -> dict:
         return dict(row)
 
 
-async def _ensure_profile(user_id: str) -> dict:
-    profile = await get_trading_profile(user_id)
+async def update_session_balance(session_id: str, new_balance: float) -> dict:
+    if fact_db.pool is None:
+        raise RuntimeError("Postgres pool is not initialized")
+
+    async with fact_db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE trading_profiles
+            SET balance = $2, updated_at = NOW()
+            WHERE session_id = $1
+            RETURNING *
+            """,
+            session_id,
+            new_balance,
+        )
+        if row is None:
+            # If profile doesn't exist, create it with this balance
+            return await _ensure_profile(session_id, user_id="default", balance=new_balance)
+        return dict(row)
+
+async def _ensure_profile(session_id: str, user_id: str = "default", balance: float = 1000.0) -> dict:
+    profile = await get_trading_profile(session_id)
     if profile:
         return profile
 
     from types import SimpleNamespace
 
     default_payload = SimpleNamespace(
+        session_id=session_id,
         user_id=user_id,
-        balance=1000.0,
+        balance=balance,
         risk_percent=3.0,
         preferred_pair="XAUUSD",
         preferred_timeframe="15M",
@@ -394,14 +446,15 @@ async def save_trade_from_signal(signal: dict, user_id: str) -> dict:
         row = await conn.fetchrow(
             """
             INSERT INTO trading_trades (
-                id, user_id, signal_id, status, entry, stop_loss, take_profit,
+                id, user_id, session_id, signal_id, status, entry, stop_loss, take_profit,
                 risk_amount, lot_size, outcome, pnl, opened_at
             )
-            VALUES ($1, $2, $3, 'OPEN', $4, $5, $6, $7, $8, NULL, 0, NOW())
+            VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7, $8, $9, NULL, 0, NOW())
             RETURNING *
             """,
             trade_id,
             user_id,
+            signal["session_id"],
             signal["id"],
             signal["entry"],
             signal["stop_loss"],
@@ -441,6 +494,13 @@ async def close_trade(trade_id: str, outcome: str, pnl: float = 0.0) -> dict:
         )
         if row is None:
             raise RuntimeError(f"Trade {trade_id} not found")
+        
+        # Update session balance
+        await conn.execute(
+            "UPDATE trading_profiles SET balance = balance + $1 WHERE session_id = $2",
+            pnl,
+            row["session_id"],
+        )
         return dict(row)
 
 
@@ -508,14 +568,18 @@ async def monitor_open_trades() -> list[dict]:
             elif tp and price <= tp:
                 hit_tp = True
 
+        # Calculate current PnL for the dashboard
+        multiplier = _pip_value_for_symbol(pair)
+        current_pnl = round((price - entry) * lot_size * multiplier if direction == "BUY" else (entry - price) * lot_size * multiplier, 2)
+        
+        # Update live PnL in database
+        async with fact_db.pool.acquire() as update_conn:
+            await update_conn.execute("UPDATE trading_trades SET pnl = $1 WHERE id = $2", current_pnl, trade["id"])
+
         if hit_sl or hit_tp:
             outcome = "LOSS" if hit_sl else "WIN"
-            # Basic PnL calculation: (Price - Entry) * LotSize for BUY
-            # Inverse for SELL.
-            # Note: This ignores pip value / multiplier for now.
-            pnl = (price - entry) * lot_size if direction == "BUY" else (entry - price) * lot_size
-            # Round pnl to 2 decimals
-            pnl = round(pnl, 2)
+            # Use the calculated current_pnl for closing
+            pnl = current_pnl
 
             try:
                 closed = await close_trade(trade["id"], outcome, pnl)
@@ -527,11 +591,11 @@ async def monitor_open_trades() -> list[dict]:
     return closed_trades
 
 
-async def get_trading_dashboard(user_id: str) -> dict:
+async def get_trading_dashboard(session_id: str) -> dict:
     if fact_db.pool is None:
         raise RuntimeError("Postgres pool is not initialized")
 
-    profile = await _ensure_profile(user_id)
+    profile = await _ensure_profile(session_id)
 
     async with fact_db.pool.acquire() as conn:
         stats = await conn.fetchrow(
@@ -545,9 +609,9 @@ async def get_trading_dashboard(user_id: str) -> dict:
                 COALESCE(SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END), 0) AS gross_profit,
                 COALESCE(SUM(CASE WHEN pnl < 0 THEN ABS(pnl) ELSE 0 END), 0) AS gross_loss
             FROM trading_trades
-            WHERE user_id = $1
+            WHERE session_id = $1
             """,
-            user_id,
+            session_id,
         )
 
         # Calculate average RR from signals associated with closed trades
@@ -556,9 +620,9 @@ async def get_trading_dashboard(user_id: str) -> dict:
             SELECT AVG(ABS(s.take_profit - s.entry) / NULLIF(ABS(s.entry - s.stop_loss), 0)) as avg_rr
             FROM trading_trades t
             JOIN trading_signals s ON t.signal_id = s.id
-            WHERE t.user_id = $1 AND t.status = 'CLOSED'
+            WHERE t.session_id = $1 AND t.status = 'CLOSED'
             """,
-            user_id,
+            session_id,
         )
 
         # Find best pair
@@ -567,23 +631,24 @@ async def get_trading_dashboard(user_id: str) -> dict:
             SELECT s.pair, SUM(t.pnl) as total_pnl
             FROM trading_trades t
             JOIN trading_signals s ON t.signal_id = s.id
-            WHERE t.user_id = $1 AND t.status = 'CLOSED'
+            WHERE t.session_id = $1 AND t.status = 'CLOSED'
             GROUP BY s.pair
             ORDER BY total_pnl DESC
             LIMIT 1
             """,
-            user_id,
+            session_id,
         )
 
         recent = await conn.fetch(
             """
-            SELECT id, signal_id, status, outcome, pnl, opened_at, closed_at
-            FROM trading_trades
-            WHERE user_id = $1
-            ORDER BY opened_at DESC
+            SELECT t.id, t.signal_id, t.status, t.outcome, t.pnl, t.opened_at, t.closed_at, s.pair
+            FROM trading_trades t
+            JOIN trading_signals s ON t.signal_id = s.id
+            WHERE t.session_id = $1
+            ORDER BY t.opened_at DESC
             LIMIT 5
             """,
-            user_id,
+            session_id,
         )
 
     total = int(stats["total_trades"] or 0)
@@ -600,7 +665,8 @@ async def get_trading_dashboard(user_id: str) -> dict:
     best_pair = best_pair_row["pair"] if best_pair_row else profile["preferred_pair"]
 
     return {
-        "user_id": user_id,
+        "user_id": profile["user_id"],
+        "session_id": session_id,
         "balance": float(profile["balance"]),
         "todays_pl": float(stats["todays_pl"] or 0),
         "win_rate": win_rate,
@@ -614,7 +680,7 @@ async def get_trading_dashboard(user_id: str) -> dict:
     }
 
 
-async def get_closed_trades_notifications(user_id: str) -> list[dict]:
+async def get_closed_trades_notifications(session_id: str) -> list[dict]:
     if fact_db.pool is None:
         return []
 
@@ -626,15 +692,15 @@ async def get_closed_trades_notifications(user_id: str) -> list[dict]:
             SELECT t.*, s.pair, s.direction
             FROM trading_trades t
             JOIN trading_signals s ON t.signal_id = s.id
-            WHERE t.user_id = $1 
+            WHERE t.session_id = $1 
               AND t.status = 'CLOSED' 
               AND t.closed_at > NOW() - INTERVAL '1 minute'
             ORDER BY t.closed_at DESC
             """,
-            user_id,
+            session_id,
         )
         return [dict(row) for row in rows]
-async def get_recent_trades_text(user_id: str, limit: int = 5) -> str:
+async def get_recent_trades_text(session_id: str, limit: int = 5) -> str:
     if fact_db.pool is None:
         raise RuntimeError("Postgres pool is not initialized")
 
@@ -643,11 +709,11 @@ async def get_recent_trades_text(user_id: str, limit: int = 5) -> str:
             """
             SELECT id, signal_id, status, outcome, pnl, opened_at, closed_at
             FROM trading_trades
-            WHERE user_id = $1
+            WHERE session_id = $1
             ORDER BY opened_at DESC
             LIMIT $2
             """,
-            user_id,
+            session_id,
             limit,
         )
 
@@ -697,8 +763,8 @@ async def fetch_market_data(pair: str, timeframe: str, outputsize: int = 100) ->
             }
         )
 
-    if len(candles) < 30:
-        raise RuntimeError("Insufficient candles returned by Twelve Data")
+    if outputsize >= 30 and len(candles) < 30:
+        raise RuntimeError(f"Insufficient candles returned by Twelve Data (requested {outputsize}, got {len(candles)})")
 
     return candles, payload
 

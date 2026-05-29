@@ -12,6 +12,7 @@ from schema import (
     UploadedDocument,
     TradingProfileRequest,
     TradingProfileResponse,
+    TradingBalanceUpdateRequest,
     TradingSignalRequest,
     TradingSignalResponse,
     TradingTradeActionRequest,
@@ -62,6 +63,7 @@ from services.trading_service import (
     init_trading_db,
     save_trading_profile,
     get_trading_profile,
+    update_session_balance,
     generate_trading_signal,
     get_trading_signal,
     save_trade_from_signal,
@@ -323,10 +325,10 @@ async def save_trading_profile_endpoint(profile: TradingProfileRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/trading/profile/{user_id}", response_model=TradingProfileResponse)
-async def get_trading_profile_endpoint(user_id: str):
+@app.get("/trading/profile/{session_id}", response_model=TradingProfileResponse)
+async def get_trading_profile_endpoint(session_id: str):
     try:
-        profile = await get_trading_profile(user_id)
+        profile = await get_trading_profile(session_id)
         if profile is None:
             raise HTTPException(status_code=404, detail="Trading profile not found")
         return TradingProfileResponse(**profile)
@@ -337,20 +339,31 @@ async def get_trading_profile_endpoint(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/trading/dashboard/{user_id}", response_model=TradingDashboardResponse)
-async def get_trading_dashboard_endpoint(user_id: str):
+@app.post("/trading/balance/update", response_model=TradingProfileResponse)
+async def update_balance_endpoint(request: TradingBalanceUpdateRequest):
     try:
-        dashboard = await get_trading_dashboard(user_id)
+        updated = await update_session_balance(request.session_id, request.new_balance)
+        return TradingProfileResponse(**updated)
+    except Exception as e:
+        print("[ERROR] Failed to update balance:", repr(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/trading/dashboard/{session_id}", response_model=TradingDashboardResponse)
+async def get_trading_dashboard_endpoint(session_id: str):
+    try:
+        dashboard = await get_trading_dashboard(session_id)
         return TradingDashboardResponse(**dashboard)
     except Exception as e:
         print("[ERROR] Failed to get trading dashboard:", repr(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/trading/notifications/{user_id}")
-async def get_trading_notifications_endpoint(user_id: str):
+@app.get("/trading/notifications/{session_id}")
+async def get_trading_notifications_endpoint(session_id: str):
     try:
-        notifications = await get_closed_trades_notifications(user_id)
+        from services.trading_service import get_closed_trades_notifications
+        notifications = await get_closed_trades_notifications(session_id)
         return {"notifications": notifications}
     except Exception as e:
         print("[ERROR] Failed to get notifications:", repr(e))

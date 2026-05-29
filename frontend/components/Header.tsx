@@ -15,6 +15,8 @@ interface HeaderProps {
   onClearChat?: () => void
   mode?: AppMode
   onModeToggle?: () => void
+  onDashboardToggle?: () => void
+  dashboardOpen?: boolean
 }
 
 export default function Header({
@@ -26,6 +28,8 @@ export default function Header({
   onClearChat,
   mode = 'agent',
   onModeToggle,
+  onDashboardToggle,
+  dashboardOpen,
 }: HeaderProps) {
   return (
     <header className="bg-card border-b-2 border-border py-4 px-6 shadow-lg z-20">
@@ -77,6 +81,20 @@ export default function Header({
           >
             <MessageSquare className="size-4" />
             {historyOpen ? 'Close History' : 'History'}
+          </button>
+
+          <button
+            onClick={onDashboardToggle}
+            className={`hidden lg:flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all duration-200 font-bold text-xs uppercase tracking-wider ${
+              dashboardOpen
+                ? 'border-emerald-400 text-emerald-300 bg-emerald-400/10 hover:bg-emerald-400/20'
+                : 'border-muted text-muted-foreground bg-muted/10 hover:bg-muted/20'
+            }`}
+            disabled={mode !== 'trading'}
+            title={mode !== 'trading' ? 'Dashboard available in Trading Mode' : 'Toggle Dashboard'}
+          >
+            <BarChart3 className="size-4" />
+            {dashboardOpen ? 'Close Dashboard' : 'Dashboard'}
           </button>
 
           <button

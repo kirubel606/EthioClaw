@@ -38,6 +38,7 @@ class DocumentUploadResponse(BaseModel):
 
 class TradingProfileRequest(BaseModel):
     user_id: str = "default"
+    session_id: str = "default"
     balance: float = 1000.0
     risk_percent: float = 1.0
     preferred_pair: str = "XAUUSD"
@@ -46,6 +47,11 @@ class TradingProfileRequest(BaseModel):
     max_daily_loss: float = 3.0
     max_open_trades: int = 1
     preferred_sessions: list[str] = Field(default_factory=list)
+
+
+class TradingBalanceUpdateRequest(BaseModel):
+    session_id: str
+    new_balance: float
 
 
 class TradingProfileResponse(TradingProfileRequest):

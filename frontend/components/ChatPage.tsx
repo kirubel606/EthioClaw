@@ -10,9 +10,11 @@ import ChatHistory from './ChatHistory'
 import TradingSignalCard, { type TradingSignal } from './TradingSignalCard'
 import TradingSetupModal, { type TradingSessionConfig } from './TradingSetupModal'
 import Settings from './Settings'
+import TradingDashboard from './TradingDashboard' // Import TradingDashboard
 import { APP_NAME } from '@/lib/env'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useToast } from '@/hooks/use-toast'
+import { BarChart3 } from 'lucide-react' // Import BarChart3 for dashboard icon
 
 interface Memory {
   id: string // This will be the key
@@ -55,7 +57,7 @@ export default function ChatPage() {
   const [isUploading, setIsUploading] = useState(false)
   const [memories, setMemories] = useState<Memory[]>([])
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
-  const [sidebarTab, setSidebarTab] = useState<'history' | 'memory'>('history')
+  const [sidebarTab, setSidebarTab] = useState<'history' | 'memory' | 'dashboard'>('history')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mode, setMode] = useState<AppMode>('agent')
   const [sessionId, setSessionId] = useState('default')
@@ -88,8 +90,9 @@ export default function ChatPage() {
   }
 
   const pollNotifications = async () => {
+    if (mode !== 'trading' || sessionId === 'default') return
     try {
-      const res = await fetch(`${BACKEND_URL}/trading/notifications/default`)
+      const res = await fetch(`${BACKEND_URL}/trading/notifications/${sessionId}`)
       if (res.ok) {
         const data = await res.json()
         const notifications = data.notifications || []
@@ -266,6 +269,7 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: 'default',
+          session_id: nextSessionId,
           balance: config.balance,
           preferred_pair: config.pair,
           preferred_timeframe: config.timeframe,
@@ -819,6 +823,15 @@ export default function ChatPage() {
         onClearChat={handleClearChat}
         mode={mode}
         onModeToggle={handleModeToggle}
+        onDashboardToggle={() => {
+          if (sidebarExpanded && sidebarTab === 'dashboard') {
+            setSidebarExpanded(false)
+          } else {
+            setSidebarExpanded(true)
+            setSidebarTab('dashboard')
+          }
+        }}
+        dashboardOpen={sidebarExpanded && sidebarTab === 'dashboard'}
       />
 
       <div className="flex flex-1 gap-0 overflow-hidden">
@@ -1021,6 +1034,21 @@ export default function ChatPage() {
                   backendUrl={BACKEND_URL}
                   mode={mode}
                 />
+              ) : sidebarTab === 'dashboard' ? (
+                <TradingDashboard 
+                   userId="default" 
+                   sessionId={sessionId}
+                   backendUrl={BACKEND_URL} 
+                   onUpdateBalance={(newBalance) => {
+                     setTradingSessions((prev) => {
+                       if (!prev[sessionId]) return prev
+                       return {
+                         ...prev,
+                         [sessionId]: { ...prev[sessionId], balance: newBalance },
+                       }
+                     })
+                   }}
+                 />
               ) : (
                 <MemoryInspector
                   memories={memories}

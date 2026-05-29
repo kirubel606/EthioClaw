@@ -308,6 +308,13 @@ html[data-theme='portal'] {
       0 0 20px rgba(59, 130, 246, 0.4);
   }
 
+  .message-bubble-user-trading {
+    @apply bg-black/50 text-foreground ml-auto border-2 border-amber-500/50;
+    box-shadow: 
+      0 0 10px rgba(245, 158, 11, 0.2),
+      inset 0 0 8px rgba(245, 158, 11, 0.1);
+  }
+
   .message-bubble-ai {
     @apply bg-gray-900 text-green-400 border border-cyan-400;
     text-shadow:
