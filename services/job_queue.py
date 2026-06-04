@@ -198,6 +198,7 @@ async def job_mcp_tool(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str
         tool_name = payload["tool_name"]
         arguments = payload.get("arguments", {})
         result = await mcp_manager.call_tool(server_name, tool_name, arguments)
+        from services.agent_tools import sanitize_untrusted_text
         sanitized = sanitize_untrusted_text(result, 4000)
         _log_queue_event(
             "queue_job_success",
@@ -369,7 +370,7 @@ class JobQueue:
                 job_name,
                 payload,
                 _queue_name=QUEUE_PREFIX,
-                _job_id=payload.get("request_id"),
+                _job_id=f"{payload.get('request_id') or uuid.uuid4().hex}_{name}_{uuid.uuid4().hex[:8]}",
                 _expires=timeout or QUEUE_JOB_TIMEOUT,
             )
             if job is None:
