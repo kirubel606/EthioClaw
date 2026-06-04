@@ -11,10 +11,25 @@ services:
       - .:/app
     env_file:
       - .env
+    environment:
+      - QUEUE_BACKEND=arq
     depends_on:
       - qdrant
       - postgres
       - redis
+
+  worker:
+    build: .
+    container_name: ai_worker
+    command: ["arq", "services.job_queue.WorkerSettings"]
+    env_file:
+      - .env
+    environment:
+      - QUEUE_BACKEND=arq
+    depends_on:
+      - redis
+      - postgres
+      - qdrant
 
   postgres:
     image: postgres:16

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote_plus, urlparse, unquote
 
-import requests
+import httpx
 from docx import Document
 from pptx import Presentation
 from pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE
@@ -46,6 +46,27 @@ def _strip_html(value: str) -> str:
     text = re.sub(r"<[^>]+>", "", value or "")
     text = html.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def sanitize_untrusted_text(value: str, limit: int = 1200) -> str:
+    """Remove common prompt-injection phrases from untrusted tool output."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+
+    blocked_patterns = [
+        r"ignore previous",
+        r"disregard",
+        r"system:",
+        r"you are now",
+        r"forget your instructions",
+        r"new instructions",
+    ]
+    for pattern in blocked_patterns:
+        text = re.sub(pattern, "", text, flags=re.I)
+
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:limit]
 
 
 ALLOWED_BINOPS: dict[type, Any] = {
@@ -219,39 +240,155 @@ def _extract_search_query(message: str) -> str | None:
     return query or text
 
 
-def _looks_like_factual_question(message: str) -> bool:
+def _looks_like_memory_question(message: str) -> bool:
     text = message.strip().lower()
     if not text:
         return False
 
-    if text.endswith("?"):
+    memory_phrases = (
+        "what did i just ask",
+        "what did i ask you",
+        "what did i say",
+        "what was my last question",
+        "what was the last thing i said",
+        "what were we talking about",
+        "what were we doing",
+        "do you remember",
+        "remember our conversation",
+        "recall our conversation",
+        "earlier in this chat",
+        "previous message",
+        "last message",
+    )
+
+    return any(phrase in text for phrase in memory_phrases)
+
+
+def _should_search_web(message: str) -> bool:
+    if _looks_like_memory_question(message):
+        return False
+
+    text = message.strip().lower()
+    if not text:
+        return False
+
+    explicit_search_triggers = (
+        "search",
+        "look up",
+        "look for",
+        "find",
+        "research",
+        "browse",
+        "web",
+    )
+
+    time_sensitive_triggers = (
+        "latest",
+        "news",
+        "current",
+        "today",
+        "this week",
+        "this month",
+        "recent",
+        "updated",
+        "now",
+        "trend",
+    )
+
+    if any(trigger in text for trigger in explicit_search_triggers):
         return True
 
-    question_starters = (
-        "what ",
-        "who ",
-        "when ",
-        "where ",
-        "why ",
-        "how ",
-        "which ",
-        "latest ",
-        "news ",
-    )
-    return text.startswith(question_starters)
+    return any(trigger in text for trigger in time_sensitive_triggers)
 
 
-def search_web(query: str, limit: int = WEB_SEARCH_LIMIT) -> list[dict[str, str]]:
+def resolve_memory_question(message: str, recent_turns: list[dict[str, str]] | None = None, working_summary: str = "") -> str | None:
+    if not _looks_like_memory_question(message):
+        return None
+
+    turns = recent_turns or []
+    prior_user_turns = [turn for turn in turns if turn.get("role") == "user" and turn.get("content")]
+    last_user_message = prior_user_turns[-1]["content"].strip() if prior_user_turns else ""
+
+    text = message.strip().lower()
+
+    if "what did i just ask" in text or "what did i ask you" in text or "what did i say" in text or "last message" in text or "previous message" in text:
+        if last_user_message:
+            return f"You just asked: \"{last_user_message}\""
+        return "I don't have a previous user message in this chat yet."
+
+    if "what were we doing" in text or "what were we talking about" in text or "do you remember" in text or "remember our conversation" in text or "recall our conversation" in text:
+        summary = (working_summary or "").strip()
+        if summary:
+            return summary
+        if last_user_message:
+            return f"We were talking about: {last_user_message}"
+        return "I don't have enough recent chat context yet."
+
+    if last_user_message:
+        return f"The last thing you said was: \"{last_user_message}\""
+
+    return "I don't have a previous user message in this chat yet."
+
+
+def resolve_identity_question(message: str, identity_facts: dict[str, str] | None = None) -> str | None:
+    text = message.strip().lower()
+    if not text:
+        return None
+
+    identity_facts = identity_facts or {}
+
+    def _first_value(keys: list[str]) -> str | None:
+        for key in keys:
+            value = identity_facts.get(key)
+            if value:
+                return str(value).strip()
+        return None
+
+    if any(phrase in text for phrase in ["what is my name", "what's my name", "do you know my name", "who am i"]):
+        value = _first_value(["name"])
+        return f"Your name is {value}." if value else "I don't have your name stored yet."
+
+    if any(phrase in text for phrase in ["what is my age", "how old am i", "what's my age"]):
+        value = _first_value(["age"])
+        return f"Your age is {value}." if value else "I don't have your age stored yet."
+
+    if any(phrase in text for phrase in ["what is my profession", "what do i do", "what is my job", "what's my job"]):
+        value = _first_value(["profession", "job", "occupation"])
+        return f"Your profession is {value}." if value else "I don't have your profession stored yet."
+
+    if any(phrase in text for phrase in ["what is my nationality", "where am i from", "what's my nationality"]):
+        value = _first_value(["nationality", "location"])
+        return f"Your nationality/location is {value}." if value else "I don't have your nationality stored yet."
+
+    return None
+
+
+def _extract_main_body(html_text: str) -> str:
+    # 1. Get body if present
+    body_match = re.search(r"<body[^>]*>([\s\S]*?)<\/body>", html_text, re.I)
+    content = body_match.group(1) if body_match else html_text
+
+    # 2. Strip tags that are navigation, footers, scripts, styles, forms, ads, etc.
+    content = re.sub(r"<(script|style|noscript|nav|footer|header|aside|form|iframe)[^>]*>([\s\S]*?)<\/\1>", " ", content, flags=re.I)
+    
+    # 3. Strip any remaining HTML tags
+    content = re.sub(r"<[^>]+>", " ", content)
+    
+    # 4. Unescape HTML entities
+    content = html.unescape(content)
+    
+    # 5. Clean up whitespace
+    content = re.sub(r"\s+", " ", content).strip()
+    return content
+
+
+async def search_web(query: str, limit: int = WEB_SEARCH_LIMIT) -> list[dict[str, str]]:
     if not query:
         return []
 
     url = "https://lite.duckduckgo.com/lite/"
-    response = requests.get(
-        url,
-        params={"q": query},
-        headers={"User-Agent": USER_AGENT},
-        timeout=WEB_SEARCH_TIMEOUT,
-    )
+    async with httpx.AsyncClient(timeout=WEB_SEARCH_TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
+        response = await client.get(url, params={"q": query})
     response.raise_for_status()
 
     html_text = response.text
@@ -280,20 +417,42 @@ def search_web(query: str, limit: int = WEB_SEARCH_LIMIT) -> list[dict[str, str]
             continue
         seen.add(final_url)
 
-        results.append({"title": title, "url": final_url})
+        results.append({"title": sanitize_untrusted_text(title, 180), "url": sanitize_untrusted_text(final_url, 500)})
         if len(results) >= limit:
             break
+
+    # For the top 2 results, fetch the full page content using httpx.AsyncClient
+    for idx, result in enumerate(results):
+        if idx >= 2:
+            break
+        try:
+            # Set a per-article fetch timeout of 5 seconds.
+            async with httpx.AsyncClient(timeout=5.0, headers={"User-Agent": USER_AGENT}) as client:
+                resp = await client.get(result["url"])
+                resp.raise_for_status()
+                body = _extract_main_body(resp.text)
+                if body:
+                    result["content"] = body[:1500]
+        except Exception as e:
+            print(f"⚠️ Failed to fetch content for {result['url']}: {e}")
 
     return results
 
 
 def format_search_results(results: list[dict[str, str]], query: str) -> str:
     if not results:
-        return f"Web search: no results found for '{query}'."
+        return sanitize_untrusted_text(f"Web search: no results found for '{query}'.")
 
-    lines = [f"Web search results for '{query}':"]
+    lines = [sanitize_untrusted_text(f"Web search results for '{query}':")]
     for idx, result in enumerate(results, 1):
-        lines.append(f"{idx}. {result['title']} - {result['url']}")
+        content = result.get("content")
+        if content:
+            lines.append(sanitize_untrusted_text(f"[{idx}] Source: {result['url']}"))
+            lines.append(sanitize_untrusted_text(f"Title: {result['title']}"))
+            lines.append(sanitize_untrusted_text(f"Content: {content}"))
+            lines.append("")
+        else:
+            lines.append(sanitize_untrusted_text(f"{idx}. {result['title']} - {result['url']}"))
     return "\n".join(lines)
 
 
@@ -646,6 +805,100 @@ def generate_artifact(kind: str, title: str, content: str) -> Path:
     raise ValueError(f"Unsupported artifact kind: {kind}")
 
 
+async def detect_missing_player_in_transfer(query: str, results: list[dict[str, str]]) -> tuple[bool, str, str]:
+    """
+    Checks if a transfer story is present in results but the player name is missing,
+    and returns (is_missing, team, rival_team).
+    """
+    transfer_keywords = ["€", "move", "sign", "transfer", "bid"]
+    combined_text = (query + " " + " ".join(r.get("title", "") + " " + r.get("content", "") for r in results)).lower()
+    
+    if not any(kw in combined_text for kw in transfer_keywords):
+        return False, "", ""
+        
+    from services.llm_client import call_llm
+    import json
+    
+    results_summary = ""
+    for idx, r in enumerate(results, 1):
+        content_snippet = r.get("content", "")[:300]
+        results_summary += f"[{idx}] Title: {r['title']}\nSnippet/Content: {content_snippet}\nURL: {r['url']}\n\n"
+        
+    prompt = f"""
+Analyze the search results below and the user's search query.
+Search Query: {query}
+Search Results:
+{results_summary}
+
+Determine if:
+1. The search results discuss a football/soccer transfer, signing, move, or bid between two clubs/teams.
+2. The search results DO NOT mention or confirm the specific name of the player being transferred/signed (i.e. the player's name is missing or unclear).
+
+If both are true, return a JSON object with:
+"is_missing": true,
+"team": "<name of one team involved, e.g. Chelsea>",
+"rival_team": "<name of the other team/rival team, e.g. Arsenal>"
+
+Otherwise, return:
+"is_missing": false,
+"team": "",
+"rival_team": ""
+
+Return ONLY valid JSON. No markdown.
+"""
+    try:
+        response = await call_llm(prompt)
+        cleaned = response.strip().replace("```json", "").replace("```", "").strip()
+        data = json.loads(cleaned)
+        return bool(data.get("is_missing")), str(data.get("team", "")), str(data.get("rival_team", ""))
+    except Exception as e:
+        print(f"⚠️ Error in detect_missing_player_in_transfer: {e}")
+        return False, "", ""
+
+
+async def check_if_player_found(query: str, results: list[dict[str, str]]) -> tuple[bool, str]:
+    """
+    Checks if a player name is confirmed in the follow-up search results.
+    Returns (has_player, player_name).
+    """
+    if not results:
+        return False, ""
+        
+    from services.llm_client import call_llm
+    import json
+    
+    results_summary = ""
+    for idx, r in enumerate(results, 1):
+        content_snippet = r.get("content", "")[:400]
+        results_summary += f"[{idx}] Title: {r['title']}\nSnippet/Content: {content_snippet}\n\n"
+        
+    prompt = f"""
+Analyze the search results below.
+Search Results:
+{results_summary}
+
+Determine if the search results confirm a specific player name involved in the transfer/signing.
+
+If yes, return a JSON object with:
+"has_player": true,
+"player_name": "<the confirmed player name, e.g. Victor Osimhen>"
+
+Otherwise, return:
+"has_player": false,
+"player_name": ""
+
+Return ONLY valid JSON. No markdown.
+"""
+    try:
+        response = await call_llm(prompt)
+        cleaned = response.strip().replace("```json", "").replace("```", "").strip()
+        data = json.loads(cleaned)
+        return bool(data.get("has_player")), str(data.get("player_name", ""))
+    except Exception as e:
+        print(f"⚠️ Error in check_if_player_found: {e}")
+        return False, ""
+
+
 async def build_tool_bundle(message: str) -> ToolBundle:
     context_parts: list[str] = []
 
@@ -653,23 +906,69 @@ async def build_tool_bundle(message: str) -> ToolBundle:
     if math_result:
         context_parts.append(math_result)
 
+    # Direct URL Fetching: if message contains URLs, fetch them directly
+    urls_in_msg = re.findall(r"https?://[^\s]+", message)
+    fetched_urls = set()
+    for u in urls_in_msg:
+        u_clean = u.rstrip(".,;!?()\"'")
+        if u_clean in fetched_urls:
+            continue
+        fetched_urls.add(u_clean)
+        try:
+            print(f"[DIRECT URL FETCH] Fetching page content for: {u_clean}")
+            async with httpx.AsyncClient(timeout=5.0, headers={"User-Agent": USER_AGENT}) as client:
+                resp = await client.get(u_clean)
+                resp.raise_for_status()
+                body = _extract_main_body(resp.text)
+                if body:
+                    context_parts.append(
+                        sanitize_untrusted_text(
+                            f"--- Content of URL: {u_clean} ---\n{body[:1500]}\n"
+                        )
+                    )
+        except Exception as e:
+            print(f"⚠️ Direct URL fetch failed for {u_clean}: {e}")
+
     search_query = _extract_search_query(message)
-    if not search_query and _looks_like_factual_question(message):
-        search_query = message.strip()
+    if not search_query and _should_search_web(message):
+        # Only search web if there are no URLs in the message, to prevent search engine noise
+        if not urls_in_msg:
+            search_query = message.strip()
 
     if search_query:
         try:
-            results = search_web(search_query)
-            context_parts.append(format_search_results(results, search_query))
+            results = await search_web(search_query)
+            # Check for missing player transfer story
+            is_missing, team, rival_team = await detect_missing_player_in_transfer(search_query, results)
+            if is_missing and team and rival_team:
+                followup_query = f"{team} transfer {rival_team} player 2025"
+                print(f"[FOLLOW-UP SEARCH] Running second search: {followup_query}")
+                try:
+                    followup_results = await search_web(followup_query)
+                    has_player, player_name = await check_if_player_found(followup_query, followup_results)
+                    if has_player and player_name:
+                        context_parts.append(format_search_results(followup_results, followup_query))
+                    else:
+                        source_url = results[0]["url"] if results else "https://lite.duckduckgo.com"
+                        context_parts.append(f"I found the story but couldn't confirm the player name. Here is the source: {source_url}")
+                except Exception as followup_exc:
+                    print(f"⚠️ Follow-up search failed: {followup_exc}")
+                    source_url = results[0]["url"] if results else "https://lite.duckduckgo.com"
+                    context_parts.append(f"I found the story but couldn't confirm the player name. Here is the source: {source_url}")
+            else:
+                context_parts.append(format_search_results(results, search_query))
         except Exception as exc:
-            context_parts.append(f"Web search failed for '{search_query}': {exc}")
+            context_parts.append(sanitize_untrusted_text(f"Web search failed for '{search_query}': {exc}"))
 
     artifact_kind, artifact_title = _extract_artifact_request(message)
     if artifact_kind:
-        context_parts.append(
-            f"Document generation request detected: {artifact_kind.upper()}.\n"
-            "Create the requested content directly. Do not claim you cannot generate files."
+        artifact_message = sanitize_untrusted_text(
+            (
+                f"Document generation request detected: {artifact_kind.upper()}.\n"
+                "Create the requested content directly. Do not claim you cannot generate files."
+            )
         )
+        context_parts.append(artifact_message)
 
     return ToolBundle(
         context="\n".join(context_parts).strip(),

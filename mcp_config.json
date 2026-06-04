@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "python",
+      "args": ["-m", "mcp_server_fetch"]
+    },
+    "skill_manager": {
+      "command": "python",
+      "args": ["services/skill_mcp.py"]
+    }
+  }
+}

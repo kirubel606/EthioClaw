@@ -9,6 +9,7 @@ class MemoryType(str, Enum):
     IDENTITY   = "identity"    # name, age, profession — highest trust, always injected
     PREFERENCE = "preference"  # likes, dislikes, habits — medium trust
     GENERAL    = "general"     # everything else — lower trust
+    CORRECTION = "correction"  # user corrections that override prior answers
 
 
 # -------------------------
@@ -40,6 +41,8 @@ def resolve_memory_type(key: str, declared_type: MemoryType) -> MemoryType:
     Upgrade declared type to IDENTITY if the key is a known identity field.
     Prevents the LLM from accidentally classifying 'name' as 'general'.
     """
+    if declared_type == MemoryType.CORRECTION:
+        return MemoryType.CORRECTION
     if key.lower() in IDENTITY_KEYS:
         return MemoryType.IDENTITY
     return declared_type

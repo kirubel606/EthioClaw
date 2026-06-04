@@ -1,20 +1,16 @@
-# services/llm_client.py
+"""Compatibility wrapper for the unified provider interface."""
+
+from __future__ import annotations
+
 import os
-import httpx
+from typing import Any
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/") + "/api/generate"
-MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:3b")
+from services.llm_provider import DEFAULT_MODEL_NAME, get_provider
 
-async def call_llm(prompt: str):
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            OLLAMA_URL,
-            json={
-                "model": MODEL_NAME,
-                "prompt": prompt,
-                "stream": False
-            }
-        )
 
-    response.raise_for_status()
-    return response.json()["response"]
+MODEL_NAME = os.getenv("MODEL_NAME", DEFAULT_MODEL_NAME)
+
+
+async def call_llm(prompt: str, model: str | None = None, options: dict[str, Any] | None = None) -> str:
+    provider = get_provider()
+    return await provider.complete(prompt, model=model or MODEL_NAME, options=options)

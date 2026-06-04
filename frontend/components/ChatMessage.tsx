@@ -1,20 +1,29 @@
 'use client'
 
 import { useState } from 'react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { MessageSquareQuote } from 'lucide-react'
 import RichText from './RichText'
+import { useTypingEffect } from '@/hooks/use-typing-effect'
 
 interface ChatMessageProps {
   role: 'user' | 'assistant' | 'system'
   content: string
   onQuote?: (text: string) => void
+  isNew?: boolean
 }
 
-export default function ChatMessage({ role, content, onQuote }: ChatMessageProps) {
+export default function ChatMessage({ role, content, onQuote, isNew = false }: ChatMessageProps) {
   const isUser = role === 'user'
   const isAI = role === 'assistant'
   const isSystem = role === 'system'
+
+  // Use typing effect only for NEW AI messages
+  const { displayedText } = useTypingEffect(
+    isAI && isNew ? content : content,
+    isAI && isNew ? 15 : 0 // 0 speed means no delay if not typing
+  )
+
   const [selection, setSelection] = useState('')
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
 
@@ -73,23 +82,23 @@ export default function ChatMessage({ role, content, onQuote }: ChatMessageProps
     >
       {isAI && (
         <div className="flex-shrink-0">
-          <Avatar className="size-12 border-2 border-primary">
-            <AvatarFallback className="bg-muted text-primary font-bold">AI</AvatarFallback>
+          <Avatar className="size-12 border border-border">
+            <AvatarFallback className="bg-card text-foreground font-bold">AI</AvatarFallback>
           </Avatar>
         </div>
       )}
       <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
-        {isAI && <p className="text-primary text-xs mb-2 font-semibold">AI Assistant</p>}
+        {isAI && <p className="text-muted-foreground text-xs mb-2 font-semibold">AI Assistant</p>}
 
         <div
           className={`message-bubble ${isAI ? 'message-bubble-ai' : 'message-bubble-user'}`}
         >
-          <RichText content={content} />
+          <RichText content={isAI && isNew ? displayedText : content} />
         </div>
       </div>
       {!isAI && (
         <div className="flex-shrink-0">
-          <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center border-2 border-border text-primary-foreground font-bold text-lg">
+          <div className="w-12 h-12 rounded-full bg-accent flex items-center justify-center border border-border text-accent-foreground font-bold text-lg">
             U
           </div>
         </div>
@@ -98,7 +107,7 @@ export default function ChatMessage({ role, content, onQuote }: ChatMessageProps
       {/* Floating Quote Reply Button */}
       {selection && onQuote && (
         <button
-          onMouseDown={(e) => e.preventDefault()} // Prevents selection loss
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleQuoteClick}
           style={{
             position: 'fixed',
@@ -107,7 +116,7 @@ export default function ChatMessage({ role, content, onQuote }: ChatMessageProps
             transform: 'translate(-50%, -100%)',
             zIndex: 9999,
           }}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary hover:bg-primary/90 border border-border text-primary-foreground text-xs font-bold shadow-lg transition-all duration-200 animate-in fade-in zoom-in-95 duration-100"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-card hover:bg-muted border border-border text-foreground text-xs font-bold shadow-lg transition-all duration-200 animate-in fade-in zoom-in-95 duration-100"
         >
           <MessageSquareQuote className="size-3.5" />
           <span>Quote Reply</span>

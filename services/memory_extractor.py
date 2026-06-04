@@ -17,7 +17,7 @@ def _is_question_only(message: str) -> bool:
 async def extract_facts(message: str) -> ExtractedFacts:
     """
     Extracts structured, typed MemoryFact objects from a user message.
-    Only processes DECLARATIVE statements — questions are skipped.
+    Only processes DECLARATIVE statements and user CORRECTIONS — questions are skipped.
     Returns an ExtractedFacts container (never raises — empty on failure).
     """
 
@@ -26,13 +26,14 @@ async def extract_facts(message: str) -> ExtractedFacts:
         return ExtractedFacts()
 
     prompt = f"""
-Extract personal facts about the USER from this message.
+Extract personal facts or user corrections from this message.
 
 STRICT RULES:
-- ONLY extract facts from DECLARATIVE first-person statements ("My name is X", "I am 26", "I work as Y").
+- ONLY extract facts from DECLARATIVE first-person statements ("My name is X", "I am 26", "I work as Y") or user CORRECTIONS of prior statements (e.g. "X plays for Y not Z", "the player is X not Y", "actually, X doesn't exist").
+- For user corrections (where the user corrects a previous mistake or fact), classify the memory_type as "correction".
 - NEVER extract from questions ("What is my name?", "How old am I?") — return empty facts for those.
 - NEVER use placeholder words like "your_name", "your_age", "unknown" as values.
-- If the message is a question or contains no real personal declarations, return {{"facts": []}}.
+- If the message is a question or contains no real personal declarations or corrections, return {{"facts": []}}.
 - Values must be real, concrete data — not template words.
 
 Message:
@@ -41,6 +42,7 @@ Message:
 Classify each fact:
 - "identity"   → name, age, profession, job, nationality, location
 - "preference" → likes, dislikes, habits, hobbies
+- "correction" → user corrections of previous facts (e.g., "X plays for Y not Z", "the player is X not Y", "you got X wrong, it is Y")
 - "general"    → anything else
 
 Return ONLY valid JSON, no markdown:
@@ -49,14 +51,14 @@ Return ONLY valid JSON, no markdown:
     {{
       "key":         "name|age|profession|...",
       "value":       "actual_value_here",
-      "memory_type": "identity|preference|general",
-      "confidence":  0.95,
+      "memory_type": "identity|preference|general|correction",
+      "confidence":  1.0,
       "source":      "user"
     }}
   ]
 }}
 
-If no declarative facts exist, return: {{"facts": []}}
+If no declarative facts or corrections exist, return: {{"facts": []}}
 """
 
     response = await call_llm(prompt)
@@ -99,6 +101,21 @@ If no declarative facts exist, return: {{"facts": []}}
                     source=item.get("source", "user")
                 )
                 facts.append(fact)
+
+                # Write correction immediately to Postgres user_facts with type="correction"
+                if resolved == MemoryType.CORRECTION:
+                    try:
+                        from services.fact_db import save_fact
+                        await save_fact(
+                            key=fact.key,
+                            value=fact.value,
+                            memory_type=MemoryType.CORRECTION.value,
+                            confidence=1.0,  # high confidence
+                            source=fact.source
+                        )
+                        print(f"✅ Immediate correction saved to Postgres: {fact.key} -> {fact.value}")
+                    except Exception as db_err:
+                        print(f"❌ Failed to save correction fact directly to Postgres: {db_err}")
 
             except Exception as parse_err:
                 print(f"⚠️  Skipping malformed fact item: {item} — {parse_err}")

@@ -51,5 +51,11 @@ typing_extensions==4.15.0
 urllib3==2.7.0
 uvicorn==0.47.0
 watchfiles==1.2.0
-websockets==16.0
+websockets>=14,<16
 reflex
+mcp
+mcp-server-fetch
+arq==0.28.0
+langchain
+langchain-ollama
+langchain-core
